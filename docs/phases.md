@@ -40,7 +40,7 @@ Establish the core repository structure, domain structs, error handling, and pro
   - **Deliverable:** Stub `mod.rs` files for all submodules registered in `src/main.rs`.
   - **Verification:** `cargo check` passes without missing module errors.
 
-- [ ] **TASK-1.2: Core Domain Models Implementation**
+- [x] **TASK-1.2: Core Domain Models Implementation**
   - **Description:** Implement `src/models.rs` defining `Document`, `Chunk`, `ChunkType`, `Edge`, and `EdgeType` with full `serde::{Serialize, Deserialize}`, `Debug`, `Clone`, and `PartialEq` derives.
   - **Deliverable:** `src/models.rs` fully typed with doc comments.
   - **Verification:** Unit tests verifying JSON serialization and deserialization roundtrip for all model variants.
@@ -358,7 +358,7 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 
 | Phase | Description | Task Count | Status |
 | :--- | :--- | :---: | :---: |
-| **Phase 1** | Foundations, Domain Models & Error Handling | 4 | Pending |
+| **Phase 1** | Foundations, Domain Models & Error Handling | 4 | In Progress (2/4) |
 | **Phase 2** | Storage & Database Layer (`src/storage/`) | 6 | Pending |
 | **Phase 3** | File Discovery & Filtering (`src/discovery/`) | 4 | Pending |
 | **Phase 4** | Markdown Ingestion & Contextual Chunking (`src/ingestion/`) | 5 | Pending |
@@ -368,4 +368,4 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 | **Phase 8** | Agent Auto-Installer (`src/installer/`, `install`) | 5 | Pending |
 | **Phase 9** | Test Suite, Benchmarks & Efficiency Gate | 5 | Pending |
 | **Phase 10** | Polishing, Packaging & Release Verification | 4 | Pending |
-| **Total** | **Full MVP Scope** | **47 Tasks** | **0 / 47 Completed** |
+| **Total** | **Full MVP Scope** | **47 Tasks** | **2 / 47 Completed** |
