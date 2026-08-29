@@ -299,7 +299,7 @@ Build fixture corpus, unit/integration suites, Criterion benchmarks, and CI effi
   - **Deliverable:** Fixtures directory committed in `tests/fixtures/`.
   - **Verification:** Unit tests reading and validating all fixture files.
 
-- [ ] **TASK-9.2: Synthetic Corpus Generator (`benches/generate_corpus.rs`)**
+- [x] **TASK-9.2: Synthetic Corpus Generator (`benches/generate_corpus.rs`)**
   - **Description:** Create benchmark generator creating medium (~500KB, 50 files) and large (~5MB, 200 files) documentation trees with realistic heading hierarchies, code snippets, and cross-links.
   - **Deliverable:** Reusable test utility for benchmark generation.
   - **Verification:** Run generator in temp dir and assert file/directory counts.
