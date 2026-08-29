@@ -39,5 +39,8 @@ clippy: ## Run Clippy linter
 clean: ## Clean build artifacts
 	cargo clean
 
+install-hooks: ## Install Git hooks for automatic background indexing
+	./scripts/install-git-hooks.sh
+
 run: ## Run Memex CLI locally
 	cargo run --

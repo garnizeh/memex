@@ -1,15 +1,7 @@
 # Rust & Cargo build artifacts
 target/
-Cargo.lock
 **/*.rs.bk
 *.pdb
-
-# Memex local data directory
-.memex/
-*.db
-*.db-wal
-*.db-shm
-*.log
 
 # Cache & Models
 .cache/
