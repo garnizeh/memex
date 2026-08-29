@@ -5,7 +5,11 @@ use crate::models::{Chunk, ChunkType};
 /// Separator used between heading levels in the contextual prefix.
 pub const HEADING_SEPARATOR: &str = " > ";
 
-/// Contextual chunker that traverses Markdown AST and generates contextually-prefixed chunks.
+/// Default maximum chunk size in characters (~512 tokens / ~2000 characters).
+pub const DEFAULT_MAX_CHUNK_CHARS: usize = 2000;
+
+/// Contextual chunker that traverses Markdown AST and generates contextually-prefixed chunks,
+/// enforcing maximum chunk size guardrails and splitting oversized content.
 pub struct ContextualChunker;
 
 impl ContextualChunker {
@@ -40,13 +44,321 @@ impl ContextualChunker {
         compute_bytes_hash(key.as_bytes())
     }
 
-    /// Traverses the parsed [`DocumentAst`] to generate a flat list of [`Chunk`]s with contextual prefixes.
+    /// Splits a text string into sentence segments based on standard sentence terminators (`.`, `!`, `?`).
+    pub fn split_text_into_sentences(text: &str) -> Vec<&str> {
+        let mut sentences = Vec::new();
+        let mut start = 0;
+        let chars: Vec<(usize, char)> = text.char_indices().collect();
+        let len = chars.len();
+
+        let mut i = 0;
+        while i < len {
+            let (_byte_idx, ch) = chars[i];
+            if ch == '.' || ch == '!' || ch == '?' {
+                // Consume consecutive punctuation like '...', '?!', '..'
+                let mut end_punc = i;
+                while end_punc + 1 < len {
+                    let next_ch = chars[end_punc + 1].1;
+                    if next_ch == '.' || next_ch == '!' || next_ch == '?' {
+                        end_punc += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                let is_at_end = end_punc + 1 == len;
+                let followed_by_ws = if !is_at_end {
+                    chars[end_punc + 1].1.is_whitespace()
+                } else {
+                    false
+                };
+
+                if is_at_end || followed_by_ws {
+                    let end_byte = if is_at_end {
+                        text.len()
+                    } else {
+                        chars[end_punc + 1].0
+                    };
+                    let sentence = text[start..end_byte].trim();
+                    if !sentence.is_empty() {
+                        sentences.push(sentence);
+                    }
+
+                    // Advance start past trailing whitespace
+                    let mut next_start = end_byte;
+                    while next_start < text.len() {
+                        let next_ch = text[next_start..].chars().next().unwrap();
+                        if next_ch.is_whitespace() {
+                            next_start += next_ch.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                    start = next_start;
+                    i = end_punc + 1;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+
+        if start < text.len() {
+            let remainder = text[start..].trim();
+            if !remainder.is_empty() {
+                sentences.push(remainder);
+            }
+        }
+
+        if sentences.is_empty() && !text.trim().is_empty() {
+            sentences.push(text.trim());
+        }
+
+        sentences
+    }
+
+    /// Splits an oversized paragraph at sentence boundaries into sub-chunks of at most `max_chars`.
+    ///
+    /// If an individual sentence exceeds `max_chars`, it is further split at word boundaries.
+    /// If a single word exceeds `max_chars`, it is split on UTF-8 character boundaries.
+    pub fn split_paragraph(content: &str, max_chars: usize) -> Vec<String> {
+        if content.len() <= max_chars {
+            return vec![content.to_string()];
+        }
+
+        let raw_sentences = Self::split_text_into_sentences(content);
+        if raw_sentences.is_empty() {
+            return Self::split_oversized_text(content, max_chars);
+        }
+
+        let mut atomic_units = Vec::new();
+        for sentence in raw_sentences {
+            if sentence.len() > max_chars {
+                let sub_sentences = Self::split_oversized_sentence_by_words(sentence, max_chars);
+                atomic_units.extend(sub_sentences);
+            } else {
+                atomic_units.push(sentence.to_string());
+            }
+        }
+
+        let mut result = Vec::new();
+        let mut current_chunk = String::new();
+
+        for unit in atomic_units {
+            let needed = if current_chunk.is_empty() {
+                unit.len()
+            } else {
+                current_chunk.len() + 1 + unit.len()
+            };
+
+            if needed <= max_chars {
+                if !current_chunk.is_empty() {
+                    current_chunk.push(' ');
+                }
+                current_chunk.push_str(&unit);
+            } else {
+                if !current_chunk.is_empty() {
+                    result.push(current_chunk);
+                }
+                current_chunk = unit;
+            }
+        }
+
+        if !current_chunk.is_empty() {
+            result.push(current_chunk);
+        }
+
+        if result.is_empty() {
+            vec![content.to_string()]
+        } else {
+            result
+        }
+    }
+
+    /// Splits an oversized code block at line boundaries into sub-chunks of at most `max_chars`.
+    pub fn split_code_block(content: &str, max_chars: usize) -> Vec<String> {
+        if content.len() <= max_chars {
+            return vec![content.to_string()];
+        }
+
+        let lines: Vec<&str> = content.lines().collect();
+        if lines.is_empty() {
+            return Self::split_oversized_text(content, max_chars);
+        }
+
+        let mut atomic_units = Vec::new();
+        for line in lines {
+            if line.len() > max_chars {
+                let sub_lines = Self::split_oversized_text(line, max_chars);
+                atomic_units.extend(sub_lines);
+            } else {
+                atomic_units.push(line.to_string());
+            }
+        }
+
+        let mut result = Vec::new();
+        let mut current_chunk = String::new();
+
+        for unit in atomic_units {
+            let needed = if current_chunk.is_empty() {
+                unit.len()
+            } else {
+                current_chunk.len() + 1 + unit.len() // 1 for '\n'
+            };
+
+            if needed <= max_chars {
+                if !current_chunk.is_empty() {
+                    current_chunk.push('\n');
+                }
+                current_chunk.push_str(&unit);
+            } else {
+                if !current_chunk.is_empty() {
+                    result.push(current_chunk);
+                }
+                current_chunk = unit;
+            }
+        }
+
+        if !current_chunk.is_empty() {
+            result.push(current_chunk);
+        }
+
+        if result.is_empty() {
+            vec![content.to_string()]
+        } else {
+            result
+        }
+    }
+
+    /// Splits an oversized list into sub-chunks of at most `max_chars`.
+    pub fn split_list(content: &str, max_chars: usize) -> Vec<String> {
+        Self::split_code_block(content, max_chars)
+    }
+
+    /// Splits content according to its [`ChunkType`].
+    pub fn split_chunk_content(
+        content: &str,
+        chunk_type: &ChunkType,
+        max_chars: usize,
+    ) -> Vec<String> {
+        match chunk_type {
+            ChunkType::Paragraph => Self::split_paragraph(content, max_chars),
+            ChunkType::CodeBlock { .. } => Self::split_code_block(content, max_chars),
+            ChunkType::List => Self::split_list(content, max_chars),
+            ChunkType::Heading { .. } => {
+                if content.len() <= max_chars {
+                    vec![content.to_string()]
+                } else {
+                    Self::split_paragraph(content, max_chars)
+                }
+            }
+        }
+    }
+
+    fn split_oversized_text(text: &str, max_chars: usize) -> Vec<String> {
+        if text.len() <= max_chars {
+            return vec![text.to_string()];
+        }
+        let mut chunks = Vec::new();
+        let mut current = String::new();
+        let mut current_len = 0;
+
+        for ch in text.chars() {
+            let ch_len = ch.len_utf8();
+            if current_len + ch_len > max_chars && !current.is_empty() {
+                chunks.push(current);
+                current = String::new();
+                current_len = 0;
+            }
+            current.push(ch);
+            current_len += ch_len;
+        }
+        if !current.is_empty() {
+            chunks.push(current);
+        }
+        chunks
+    }
+
+    fn split_oversized_sentence_by_words(sentence: &str, max_chars: usize) -> Vec<String> {
+        if sentence.len() <= max_chars {
+            return vec![sentence.to_string()];
+        }
+
+        let words: Vec<&str> = sentence.split_whitespace().collect();
+        if words.is_empty() {
+            return Self::split_oversized_text(sentence, max_chars);
+        }
+
+        let mut result = Vec::new();
+        let mut current_chunk = String::new();
+
+        for word in words {
+            if word.len() > max_chars {
+                if !current_chunk.is_empty() {
+                    result.push(current_chunk);
+                    current_chunk = String::new();
+                }
+                let word_chunks = Self::split_oversized_text(word, max_chars);
+                let num_chunks = word_chunks.len();
+                for (idx, wc) in word_chunks.into_iter().enumerate() {
+                    if idx + 1 == num_chunks {
+                        current_chunk = wc;
+                    } else {
+                        result.push(wc);
+                    }
+                }
+            } else {
+                let needed = if current_chunk.is_empty() {
+                    word.len()
+                } else {
+                    current_chunk.len() + 1 + word.len()
+                };
+
+                if needed <= max_chars {
+                    if !current_chunk.is_empty() {
+                        current_chunk.push(' ');
+                    }
+                    current_chunk.push_str(word);
+                } else {
+                    if !current_chunk.is_empty() {
+                        result.push(current_chunk);
+                    }
+                    current_chunk = word.to_string();
+                }
+            }
+        }
+
+        if !current_chunk.is_empty() {
+            result.push(current_chunk);
+        }
+
+        result
+    }
+
+    /// Traverses the parsed [`DocumentAst`] to generate a flat list of [`Chunk`]s with contextual prefixes,
+    /// enforcing the default maximum chunk size (~2000 chars).
     pub fn chunk_document(doc_id: &str, ast: &DocumentAst) -> Vec<Chunk> {
+        Self::chunk_document_with_max_size(doc_id, ast, DEFAULT_MAX_CHUNK_CHARS)
+    }
+
+    /// Traverses the parsed [`DocumentAst`] to generate a flat list of [`Chunk`]s with contextual prefixes,
+    /// splitting oversized content according to `max_chars`.
+    pub fn chunk_document_with_max_size(
+        doc_id: &str,
+        ast: &DocumentAst,
+        max_chars: usize,
+    ) -> Vec<Chunk> {
         let mut chunks = Vec::new();
         let current_heading_path: Vec<String> = Vec::new();
 
         for root in &ast.roots {
-            Self::traverse_node(root, doc_id, None, &current_heading_path, &mut chunks);
+            Self::traverse_node(
+                root,
+                doc_id,
+                None,
+                &current_heading_path,
+                max_chars,
+                &mut chunks,
+            );
         }
 
         chunks
@@ -57,6 +369,7 @@ impl ContextualChunker {
         doc_id: &str,
         parent_chunk_id: Option<&str>,
         current_heading_path: &[String],
+        max_chars: usize,
         chunks: &mut Vec<Chunk>,
     ) {
         match &node.kind {
@@ -90,95 +403,204 @@ impl ContextualChunker {
                         doc_id,
                         child_parent_id,
                         &child_heading_path,
+                        max_chars,
                         chunks,
                     );
                 }
             }
             AstNodeKind::Paragraph => {
                 let heading_path = current_heading_path.to_vec();
-                let contextual_content =
-                    Self::format_contextual_content(&heading_path, &node.content);
-                let chunk_id = Self::compute_chunk_id(doc_id, &heading_path, &node.content);
-
-                let chunk = Chunk {
-                    id: chunk_id.clone(),
-                    doc_id: doc_id.to_string(),
-                    parent_chunk_id: parent_chunk_id.map(|s| s.to_string()),
-                    chunk_type: ChunkType::Paragraph,
-                    heading_path,
-                    content: node.content.clone(),
-                    contextual_content,
-                    line_start: node.line_start,
-                    line_end: node.line_end,
+                let prefix_len = if heading_path.is_empty() {
+                    0
+                } else {
+                    Self::format_prefix(&heading_path).len() + 1
                 };
-                chunks.push(chunk);
+                let content_limit = if max_chars > prefix_len + 50 {
+                    max_chars - prefix_len
+                } else {
+                    max_chars
+                };
+
+                let sub_contents = if node.content.len() > content_limit {
+                    Self::split_paragraph(&node.content, content_limit)
+                } else {
+                    vec![node.content.clone()]
+                };
+
+                let mut current_line = node.line_start;
+                let total_subs = sub_contents.len();
+                let mut first_chunk_id: Option<String> = None;
+
+                for (idx, sub_content) in sub_contents.iter().enumerate() {
+                    let contextual_content =
+                        Self::format_contextual_content(&heading_path, sub_content);
+                    let chunk_id = Self::compute_chunk_id(doc_id, &heading_path, sub_content);
+                    if first_chunk_id.is_none() {
+                        first_chunk_id = Some(chunk_id.clone());
+                    }
+
+                    let newline_count = sub_content.matches('\n').count();
+                    let sub_line_start = current_line;
+                    let sub_line_end = if idx + 1 == total_subs {
+                        node.line_end
+                    } else {
+                        (current_line + newline_count as u32).min(node.line_end)
+                    };
+                    current_line = (sub_line_end + 1).min(node.line_end);
+
+                    let chunk = Chunk {
+                        id: chunk_id,
+                        doc_id: doc_id.to_string(),
+                        parent_chunk_id: parent_chunk_id.map(|s| s.to_string()),
+                        chunk_type: ChunkType::Paragraph,
+                        heading_path: heading_path.clone(),
+                        content: sub_content.clone(),
+                        contextual_content,
+                        line_start: sub_line_start,
+                        line_end: sub_line_end,
+                    };
+                    chunks.push(chunk);
+                }
 
                 for child in &node.children {
                     Self::traverse_node(
                         child,
                         doc_id,
-                        Some(chunk_id.as_str()),
+                        first_chunk_id.as_deref().or(parent_chunk_id),
                         current_heading_path,
+                        max_chars,
                         chunks,
                     );
                 }
             }
             AstNodeKind::CodeBlock { language } => {
                 let heading_path = current_heading_path.to_vec();
-                let contextual_content =
-                    Self::format_contextual_content(&heading_path, &node.content);
-                let chunk_id = Self::compute_chunk_id(doc_id, &heading_path, &node.content);
-
-                let chunk = Chunk {
-                    id: chunk_id.clone(),
-                    doc_id: doc_id.to_string(),
-                    parent_chunk_id: parent_chunk_id.map(|s| s.to_string()),
-                    chunk_type: ChunkType::CodeBlock {
-                        language: language.clone(),
-                    },
-                    heading_path,
-                    content: node.content.clone(),
-                    contextual_content,
-                    line_start: node.line_start,
-                    line_end: node.line_end,
+                let prefix_len = if heading_path.is_empty() {
+                    0
+                } else {
+                    Self::format_prefix(&heading_path).len() + 1
                 };
-                chunks.push(chunk);
+                let content_limit = if max_chars > prefix_len + 50 {
+                    max_chars - prefix_len
+                } else {
+                    max_chars
+                };
+
+                let sub_contents = if node.content.len() > content_limit {
+                    Self::split_code_block(&node.content, content_limit)
+                } else {
+                    vec![node.content.clone()]
+                };
+
+                let mut current_line = node.line_start;
+                let total_subs = sub_contents.len();
+                let mut first_chunk_id: Option<String> = None;
+
+                for (idx, sub_content) in sub_contents.iter().enumerate() {
+                    let contextual_content =
+                        Self::format_contextual_content(&heading_path, sub_content);
+                    let chunk_id = Self::compute_chunk_id(doc_id, &heading_path, sub_content);
+                    if first_chunk_id.is_none() {
+                        first_chunk_id = Some(chunk_id.clone());
+                    }
+
+                    let newline_count = sub_content.matches('\n').count();
+                    let sub_line_start = current_line;
+                    let sub_line_end = if idx + 1 == total_subs {
+                        node.line_end
+                    } else {
+                        (current_line + newline_count as u32).min(node.line_end)
+                    };
+                    current_line = (sub_line_end + 1).min(node.line_end);
+
+                    let chunk = Chunk {
+                        id: chunk_id,
+                        doc_id: doc_id.to_string(),
+                        parent_chunk_id: parent_chunk_id.map(|s| s.to_string()),
+                        chunk_type: ChunkType::CodeBlock {
+                            language: language.clone(),
+                        },
+                        heading_path: heading_path.clone(),
+                        content: sub_content.clone(),
+                        contextual_content,
+                        line_start: sub_line_start,
+                        line_end: sub_line_end,
+                    };
+                    chunks.push(chunk);
+                }
 
                 for child in &node.children {
                     Self::traverse_node(
                         child,
                         doc_id,
-                        Some(chunk_id.as_str()),
+                        first_chunk_id.as_deref().or(parent_chunk_id),
                         current_heading_path,
+                        max_chars,
                         chunks,
                     );
                 }
             }
             AstNodeKind::List => {
                 let heading_path = current_heading_path.to_vec();
-                let contextual_content =
-                    Self::format_contextual_content(&heading_path, &node.content);
-                let chunk_id = Self::compute_chunk_id(doc_id, &heading_path, &node.content);
-
-                let chunk = Chunk {
-                    id: chunk_id.clone(),
-                    doc_id: doc_id.to_string(),
-                    parent_chunk_id: parent_chunk_id.map(|s| s.to_string()),
-                    chunk_type: ChunkType::List,
-                    heading_path,
-                    content: node.content.clone(),
-                    contextual_content,
-                    line_start: node.line_start,
-                    line_end: node.line_end,
+                let prefix_len = if heading_path.is_empty() {
+                    0
+                } else {
+                    Self::format_prefix(&heading_path).len() + 1
                 };
-                chunks.push(chunk);
+                let content_limit = if max_chars > prefix_len + 50 {
+                    max_chars - prefix_len
+                } else {
+                    max_chars
+                };
+
+                let sub_contents = if node.content.len() > content_limit {
+                    Self::split_list(&node.content, content_limit)
+                } else {
+                    vec![node.content.clone()]
+                };
+
+                let mut current_line = node.line_start;
+                let total_subs = sub_contents.len();
+                let mut first_chunk_id: Option<String> = None;
+
+                for (idx, sub_content) in sub_contents.iter().enumerate() {
+                    let contextual_content =
+                        Self::format_contextual_content(&heading_path, sub_content);
+                    let chunk_id = Self::compute_chunk_id(doc_id, &heading_path, sub_content);
+                    if first_chunk_id.is_none() {
+                        first_chunk_id = Some(chunk_id.clone());
+                    }
+
+                    let newline_count = sub_content.matches('\n').count();
+                    let sub_line_start = current_line;
+                    let sub_line_end = if idx + 1 == total_subs {
+                        node.line_end
+                    } else {
+                        (current_line + newline_count as u32).min(node.line_end)
+                    };
+                    current_line = (sub_line_end + 1).min(node.line_end);
+
+                    let chunk = Chunk {
+                        id: chunk_id,
+                        doc_id: doc_id.to_string(),
+                        parent_chunk_id: parent_chunk_id.map(|s| s.to_string()),
+                        chunk_type: ChunkType::List,
+                        heading_path: heading_path.clone(),
+                        content: sub_content.clone(),
+                        contextual_content,
+                        line_start: sub_line_start,
+                        line_end: sub_line_end,
+                    };
+                    chunks.push(chunk);
+                }
 
                 for child in &node.children {
                     Self::traverse_node(
                         child,
                         doc_id,
-                        Some(chunk_id.as_str()),
+                        first_chunk_id.as_deref().or(parent_chunk_id),
                         current_heading_path,
+                        max_chars,
                         chunks,
                     );
                 }
@@ -187,9 +609,18 @@ impl ContextualChunker {
     }
 }
 
-/// Convenience helper to generate chunks for a document AST.
+/// Convenience helper to generate chunks for a document AST with default max chunk size.
 pub fn chunk_document(doc_id: &str, ast: &DocumentAst) -> Vec<Chunk> {
     ContextualChunker::chunk_document(doc_id, ast)
+}
+
+/// Convenience helper to generate chunks for a document AST with custom max chunk size.
+pub fn chunk_document_with_max_size(
+    doc_id: &str,
+    ast: &DocumentAst,
+    max_chars: usize,
+) -> Vec<Chunk> {
+    ContextualChunker::chunk_document_with_max_size(doc_id, ast, max_chars)
 }
 
 /// Convenience helper to format contextual content given a heading path and content.
@@ -205,6 +636,31 @@ pub fn format_prefix(heading_path: &[String]) -> String {
 /// Convenience helper to compute deterministic chunk ID.
 pub fn compute_chunk_id(doc_id: &str, heading_path: &[String], content: &str) -> String {
     ContextualChunker::compute_chunk_id(doc_id, heading_path, content)
+}
+
+/// Convenience helper to split text into sentences.
+pub fn split_text_into_sentences(text: &str) -> Vec<&str> {
+    ContextualChunker::split_text_into_sentences(text)
+}
+
+/// Convenience helper to split an oversized paragraph.
+pub fn split_paragraph(content: &str, max_chars: usize) -> Vec<String> {
+    ContextualChunker::split_paragraph(content, max_chars)
+}
+
+/// Convenience helper to split an oversized code block.
+pub fn split_code_block(content: &str, max_chars: usize) -> Vec<String> {
+    ContextualChunker::split_code_block(content, max_chars)
+}
+
+/// Convenience helper to split an oversized list.
+pub fn split_list(content: &str, max_chars: usize) -> Vec<String> {
+    ContextualChunker::split_list(content, max_chars)
+}
+
+/// Convenience helper to split content according to chunk type.
+pub fn split_chunk_content(content: &str, chunk_type: &ChunkType, max_chars: usize) -> Vec<String> {
+    ContextualChunker::split_chunk_content(content, chunk_type, max_chars)
 }
 
 #[cfg(test)]
@@ -481,5 +937,161 @@ Content two.
             list_chunk.contextual_content,
             "[Overview] - Item 1\n- Item 2"
         );
+    }
+
+    #[test]
+    fn test_split_text_into_sentences() {
+        let text = "First sentence. Second sentence! Third sentence? Fourth sentence with ellipsis... And next.";
+        let sentences = split_text_into_sentences(text);
+        assert_eq!(
+            sentences,
+            vec![
+                "First sentence.",
+                "Second sentence!",
+                "Third sentence?",
+                "Fourth sentence with ellipsis...",
+                "And next."
+            ]
+        );
+    }
+
+    #[test]
+    fn test_split_paragraph_under_limit() {
+        let content = "A short paragraph with two sentences. Everything fits nicely.";
+        let split = split_paragraph(content, 2000);
+        assert_eq!(split.len(), 1);
+        assert_eq!(split[0], content);
+    }
+
+    #[test]
+    fn test_split_oversized_paragraph_4000_chars_preserves_prefix_and_parent() {
+        // Construct a paragraph of ~4000 characters consisting of multiple sentences
+        let sentence =
+            "This is a detailed sentence describing architectural properties of the system. ";
+        let repeats = 4000 / sentence.len() + 1;
+        let large_paragraph = sentence.repeat(repeats);
+        assert!(large_paragraph.len() >= 4000);
+
+        let markdown = format!(
+            r#"# System Architecture
+## Storage Engine
+{large_paragraph}
+"#
+        );
+
+        let ast = MarkdownParser::parse(&markdown).expect("Failed to parse markdown");
+        let chunks = chunk_document("doc_arch_large", &ast);
+
+        // Chunks should be:
+        // 0: H1 System Architecture
+        // 1: H2 Storage Engine
+        // 2..N: Split sub-chunks of the paragraph
+        assert!(chunks.len() >= 3);
+
+        let h1 = &chunks[0];
+        let h2 = &chunks[1];
+        assert_eq!(h1.chunk_type, ChunkType::Heading { level: 1 });
+        assert_eq!(h2.chunk_type, ChunkType::Heading { level: 2 });
+        assert_eq!(h2.parent_chunk_id, Some(h1.id.clone()));
+
+        let heading_prefix = "[System Architecture > Storage Engine]";
+        let heading_path = vec![
+            "System Architecture".to_string(),
+            "Storage Engine".to_string(),
+        ];
+
+        let paragraph_sub_chunks = &chunks[2..];
+        for (i, sub_chunk) in paragraph_sub_chunks.iter().enumerate() {
+            assert_eq!(sub_chunk.chunk_type, ChunkType::Paragraph);
+            assert_eq!(sub_chunk.heading_path, heading_path);
+            assert_eq!(sub_chunk.parent_chunk_id, Some(h2.id.clone()));
+            assert!(
+                sub_chunk.contextual_content.starts_with(heading_prefix),
+                "Sub-chunk {} contextual content does not start with expected prefix: {}",
+                i,
+                sub_chunk.contextual_content
+            );
+            assert!(
+                sub_chunk.contextual_content.len() <= DEFAULT_MAX_CHUNK_CHARS,
+                "Sub-chunk {} exceeds maximum chars limit: {} > {}",
+                i,
+                sub_chunk.contextual_content.len(),
+                DEFAULT_MAX_CHUNK_CHARS
+            );
+            assert!(!sub_chunk.content.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_split_oversized_code_block() {
+        let line = "let mut counter = counter + 1; // perform computation step\n";
+        let repeats = 3000 / line.len() + 1;
+        let large_code = line.repeat(repeats);
+        assert!(large_code.len() >= 3000);
+
+        let markdown = format!(
+            r#"# Reference
+```rust
+{large_code}```
+"#
+        );
+
+        let ast = MarkdownParser::parse(&markdown).expect("Failed to parse markdown");
+        let chunks = chunk_document("doc_code_large", &ast);
+
+        assert!(chunks.len() >= 3);
+        let h1 = &chunks[0];
+
+        let code_sub_chunks = &chunks[1..];
+        for sub_chunk in code_sub_chunks {
+            assert_eq!(
+                sub_chunk.chunk_type,
+                ChunkType::CodeBlock {
+                    language: Some("rust".to_string())
+                }
+            );
+            assert_eq!(sub_chunk.heading_path, vec!["Reference".to_string()]);
+            assert_eq!(sub_chunk.parent_chunk_id, Some(h1.id.clone()));
+            assert!(sub_chunk.contextual_content.starts_with("[Reference]"));
+            assert!(sub_chunk.contextual_content.len() <= DEFAULT_MAX_CHUNK_CHARS);
+        }
+    }
+
+    #[test]
+    fn test_split_oversized_list() {
+        let item = "- Item detailing an important aspect of configuration and behavior\n";
+        let repeats = 2500 / item.len() + 1;
+        let large_list = item.repeat(repeats);
+
+        let markdown = format!(
+            r#"# Config Options
+{large_list}
+"#
+        );
+
+        let ast = MarkdownParser::parse(&markdown).expect("Failed to parse markdown");
+        let chunks = chunk_document("doc_list_large", &ast);
+
+        assert!(chunks.len() >= 3);
+        let h1 = &chunks[0];
+
+        let list_sub_chunks = &chunks[1..];
+        for sub_chunk in list_sub_chunks {
+            assert_eq!(sub_chunk.chunk_type, ChunkType::List);
+            assert_eq!(sub_chunk.heading_path, vec!["Config Options".to_string()]);
+            assert_eq!(sub_chunk.parent_chunk_id, Some(h1.id.clone()));
+            assert!(sub_chunk.contextual_content.starts_with("[Config Options]"));
+            assert!(sub_chunk.contextual_content.len() <= DEFAULT_MAX_CHUNK_CHARS);
+        }
+    }
+
+    #[test]
+    fn test_split_no_punctuation_long_text() {
+        let words = "unpunctuated text with many words ".repeat(100);
+        let split = split_paragraph(&words, 200);
+        assert!(split.len() > 1);
+        for s in split {
+            assert!(s.len() <= 200);
+        }
     }
 }

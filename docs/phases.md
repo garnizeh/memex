@@ -139,7 +139,7 @@ Transform Markdown files into an AST, generate contextually prefixed chunks, bui
   - **Deliverable:** Function generating prefixed text for every leaf node.
   - **Verification:** Unit tests verifying prefix formatting matches expected heading hierarchy.
 
-- [ ] **TASK-4.3: Chunk Size Guardrail & Splitting (`src/ingestion/chunker.rs`)**
+- [x] **TASK-4.3: Chunk Size Guardrail & Splitting (`src/ingestion/chunker.rs`)**
   - **Description:** Enforce maximum chunk size (~512 tokens / ~2000 chars). Split oversized paragraphs at sentence boundaries while preserving the identical `heading_path` and `parent_chunk_id`.
   - **Deliverable:** Splitter function handling large paragraphs and code blocks.
   - **Verification:** Unit test with 4000-character paragraph producing split chunks with identical heading prefixes.
