@@ -8,7 +8,7 @@ Welcome to the technical documentation repository for **Memex**, a fast, local, 
 
 The documentation is organized into domain-specific subdirectories:
 
-```
+```text
 docs/
 ├── README.md                      # Documentation hub and index (this file)
 ├── architecture/                  # System architecture, database schema, and protocol specs
