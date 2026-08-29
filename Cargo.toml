@@ -1,0 +1,55 @@
+[package]
+name = "memex"
+version = "0.1.0"
+edition = "2021"
+authors = ["garnizeh"]
+description = "Local, Offline Documentation Context Server (MCP) for LLMs & AI Coding Agents"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/garnizeh/memex"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1.44", features = ["full"] }
+
+# Serialization & Protocols
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmcp = { version = "3.1.4", optional = true }
+
+# Markdown Parsing
+pulldown-cmark = { version = "0.13", default-features = false }
+
+# Database & Vectors
+rusqlite = { version = "0.40.2", features = ["bundled", "modern_sqlite"] }
+sqlite-vec = { version = "0.1.9", optional = true }
+
+# ONNX Runtime & Embeddings
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["download-binaries", "tls-rustls"] }
+tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
+
+# File system & Ignores
+ignore = "0.4"
+directories = "6.0"
+walkdir = "2.5"
+
+# Utilities & Error Handling
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sha2 = "0.11.0"
+hex = "0.4"
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["html_reports"] }
+tempfile = "3.18"
+tiktoken-rs = "0.12.0"
+
+[[bench]]
+name = "bench_token_efficiency"
+harness = false
+required-features = []

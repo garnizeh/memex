@@ -1,0 +1,40 @@
+# Rust & Cargo build artifacts
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Memex local data directory
+.memex/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Cache & Models
+.cache/
+models/
+
+# IDE and Editor Files
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~

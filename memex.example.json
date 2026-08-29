@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemexConfig",
+  "description": "Project-level configuration for Memex documentation indexing",
+  "type": "object",
+  "properties": {
+    "exclude": {
+      "type": "array",
+      "description": "Glob patterns for paths to exclude from indexing",
+      "items": {
+        "type": "string"
+      },
+      "default": ["vendor/", "docs/legacy/"]
+    },
+    "include": {
+      "type": "array",
+      "description": "Glob patterns for paths to force-include into the index even if gitignored",
+      "items": {
+        "type": "string"
+      },
+      "default": ["docs/"]
+    }
+  },
+  "exclude": [
+    "vendor/",
+    "docs/legacy/"
+  ],
+  "include": [
+    "docs/"
+  ]
+}
