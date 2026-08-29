@@ -4,12 +4,13 @@
 
 [![Status: Production Ready (MVP)](https://img.shields.io/badge/Status-MVP%20Ready-brightgreen.svg)](#memex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-244%20Passing-success.svg)](#-testing--benchmarks)
+[![Tests](https://img.shields.io/badge/Tests-248%20Passing-success.svg)](#-testing--benchmarks)
+[![Rust](https://img.shields.io/badge/Rust-2024%20Edition-orange.svg)](https://www.rust-lang.org/)
 
-**Memex** is a high-performance, 100% offline [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server written in Rust. It serves as a semantic and structural gateway to project documentation, drastically reducing token consumption, context window pollution, and query latency for AI assistants like Claude Code, Cursor, and Antigravity IDE.
+**Memex** is a high-performance, 100% offline [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server written in Rust (2024 Edition). It serves as a semantic and structural gateway to project documentation, drastically reducing token consumption, context window pollution, and query latency for AI assistants like Claude Code, Cursor, and Antigravity IDE.
 
 > [!NOTE]
-> **MVP Complete & Ready for Use:** All 10 development phases and 47 core specification tasks are 100% implemented, tested, and benchmarked. You can build the standalone binary and start indexing repositories immediately.
+> **MVP Complete & Ready for Use:** All development phases and core specification tasks are 100% implemented, tested, and benchmarked. You can build the standalone binary and start indexing repositories immediately.
 
 ---
 
@@ -39,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/garnizeh/memex/main/install.sh | sh
 irm https://raw.githubusercontent.com/garnizeh/memex/main/install.ps1 | iex
 ```
 
-*(Alternatively, build from source via `cargo install --path .` or `cargo build --release`)*
+*(Alternatively, build from source using Rust 1.85+ with `cargo install --path .` or `cargo build --release`)*
 
 ### 2. Auto-Register with AI Agents
 
@@ -65,6 +66,9 @@ Update the index after modifying or adding Markdown documentation:
 
 ```bash
 memex index
+
+# Or force a complete re-index if needed:
+memex index --force
 ```
 
 ### 5. Git Hooks Automation (Optional)
@@ -93,15 +97,20 @@ When started as an MCP server (`memex serve --mcp`), Memex exposes two primary t
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture & Documentation
 
-For a deep dive into data structures, database schema, SQLite queries, parsing pipelines, and benchmark validation gates, check out the comprehensive [Architecture Design Document](docs/architecture/architecture.md) or explore the [Documentation Hub](docs/README.md).
+For a deep dive into technical design, database schemas, and future roadmap, explore the documentation guides:
+
+- 📖 [Documentation Index (`docs/README.md`)](docs/README.md)
+- 🏛️ [Architecture Design Document](docs/architecture/architecture.md)
+- 📊 [Empirical Performance & Benchmark Report](docs/benchmarks/benchmark-report.md)
+- 🗺️ [Roadmap & Milestones](docs/roadmap/mvp-roadmap.md)
 
 ```mermaid
 graph TD
     Client[LLM Host / AI Agent<br>Claude Code, Cursor, etc.] <-->|stdio / JSON-RPC| MCP[Memex MCP Interface]
     
-    subgraph Memex ["Memex Server (Rust)"]
+    subgraph Memex ["Memex Server (Rust 2024)"]
         MCP
         
         subgraph Ingestion_Engine [Ingestion Engine]
@@ -148,7 +157,7 @@ You can customize inclusion and exclusion rules at the project level by committi
 Run tests and benchmarks:
 
 ```bash
-# Run unit & integration tests
+# Run unit & integration tests (248 tests)
 cargo test
 
 # Run efficiency benchmarks
