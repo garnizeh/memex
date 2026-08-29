@@ -273,7 +273,7 @@ Implement interactive and automated agent configuration injection for Claude Cod
   - **Deliverable:** `ClaudeTarget` implementation.
   - **Verification:** Test verifying correct JSON merging and permission entry injection.
 
-- [ ] **TASK-8.4: Cursor & Antigravity IDE Targets (`src/installer/targets/`)**
+- [x] **TASK-8.4: Cursor & Antigravity IDE Targets (`src/installer/targets/`)**
   - **Description:** Implement targets for Cursor (`~/.cursor/mcp.json`) and Antigravity IDE (`~/.gemini/antigravity-ide/mcp/`).
   - **Deliverable:** `CursorTarget` and `AntigravityTarget` structs.
   - **Verification:** Test verifying MCP config generation for both targets.
