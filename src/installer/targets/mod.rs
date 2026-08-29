@@ -163,9 +163,9 @@ impl TargetRegistry {
     /// Creates a registry initialized with all default agent targets (Claude, Cursor, Antigravity).
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
-        registry.register(Box::new(ClaudeTarget::default()));
-        registry.register(Box::new(CursorTarget::default()));
-        registry.register(Box::new(AntigravityTarget::default()));
+        registry.register(Box::new(ClaudeTarget));
+        registry.register(Box::new(CursorTarget));
+        registry.register(Box::new(AntigravityTarget));
         registry
     }
 
