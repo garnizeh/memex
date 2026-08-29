@@ -11,7 +11,9 @@ mod generate_corpus;
 use generate_corpus::{CorpusGenerator, CorpusPreset};
 use memex::cli::init::init_project;
 use memex::ingestion::embedder::{EmbeddingEngine, ModelManager};
-use memex::mcp::tools::{format_search_markdown, search_documentation_with_reader, DocSearchResult};
+use memex::mcp::tools::{
+    format_search_markdown, search_documentation_with_reader, DocSearchResult,
+};
 use memex::storage::db::Database;
 use std::fs;
 use std::path::Path;
@@ -76,11 +78,7 @@ fn setup_gate_context() -> GateContext {
 ///
 /// If keyword matches are found across documents, returns the sum of tokens of all matching documents.
 /// If no specific keyword match is found, falls back to total corpus documentation tokens.
-fn count_naive_tokens(
-    project_dir: &Path,
-    query: &str,
-    tokenizer: &tiktoken_rs::CoreBPE,
-) -> usize {
+fn count_naive_tokens(project_dir: &Path, query: &str, tokenizer: &tiktoken_rs::CoreBPE) -> usize {
     let keywords: Vec<String> = query
         .split(|c: char| !c.is_alphanumeric())
         .map(|s| s.to_lowercase())
@@ -142,7 +140,9 @@ fn count_result_tokens(
     tokenizer: &tiktoken_rs::CoreBPE,
 ) -> usize {
     let formatted_output = format_search_markdown(query, results);
-    tokenizer.encode_with_special_tokens(&formatted_output).len()
+    tokenizer
+        .encode_with_special_tokens(&formatted_output)
+        .len()
 }
 
 /// CI Token Reduction Efficiency Gate
@@ -171,9 +171,8 @@ fn gate_token_reduction_minimum_70_percent() {
 
     for &query in QUERIES {
         let naive_tokens = count_naive_tokens(&ctx.project_dir, query, &tokenizer);
-        let search_results =
-            search_documentation_with_reader(&reader, &ctx.engine, query, 5)
-                .expect("search_documentation should succeed");
+        let search_results = search_documentation_with_reader(&reader, &ctx.engine, query, 5)
+            .expect("search_documentation should succeed");
 
         let memex_tokens = count_result_tokens(query, &search_results, &tokenizer);
 
