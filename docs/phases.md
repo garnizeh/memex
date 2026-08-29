@@ -228,7 +228,7 @@ Implement stdio JSON-RPC 2.0 transport, tool definitions, request routing, and q
   - **Deliverable:** `McpTransport::listen<H: RequestHandler>(handler: H) -> Result<()>`.
   - **Verification:** Unit test asserting JSON-RPC frame serialization and deserialization.
 
-- [ ] **TASK-7.2: MCP Protocol Handshake & Tool Schemas (`src/mcp/types.rs`)**
+- [x] **TASK-7.2: MCP Protocol Handshake & Tool Schemas (`src/mcp/types.rs`)**
   - **Description:** Implement handlers for `initialize`, `notifications/initialized`, and `tools/list`, returning tool definitions and JSON schemas for `search_documentation` and `traverse_graph`.
   - **Deliverable:** Schema descriptors matching Section 7 of `architecture.md`.
   - **Verification:** Unit test validating generated tool schema against standard MCP specs.
