@@ -153,9 +153,7 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         *hooks = serde_json::json!({});
     }
 
-    let hooks_obj = hooks
-        .as_object_mut()
-        .expect("hooks must be a JSON object");
+    let hooks_obj = hooks.as_object_mut().expect("hooks must be a JSON object");
 
     let user_prompt = hooks_obj
         .entry("UserPromptSubmit")
