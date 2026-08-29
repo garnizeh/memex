@@ -77,12 +77,10 @@ impl IndexProgressReporter {
             pb.finish_and_clear();
         }
 
-        if self.interactive {
-            eprintln!(
-                "✓ [1/4] Discovered {} documentation file(s) ({} changed)",
-                total_scanned, to_process
-            );
-        }
+        eprintln!(
+            "✓ [1/4] Discovered {} documentation file(s) ({} changed)",
+            total_scanned, to_process
+        );
     }
 
     /// Stage 2: Parsing AST & Chunking.
@@ -122,12 +120,10 @@ impl IndexProgressReporter {
             pb.finish_and_clear();
         }
 
-        if self.interactive {
-            eprintln!(
-                "✓ [2/4] Parsed {} semantic chunk(s) & extracted {} graph relationship(s)",
-                chunk_count, edge_count
-            );
-        }
+        eprintln!(
+            "✓ [2/4] Parsed {} semantic chunk(s) & extracted {} graph relationship(s)",
+            chunk_count, edge_count
+        );
     }
 
     /// Stage 3: Generating ONNX dense vector embeddings with real-time throughput and progress.
@@ -172,10 +168,8 @@ impl IndexProgressReporter {
 
         if let Some(ref pb) = self.embed_bar.take() {
             pb.finish_and_clear();
-            if self.interactive {
-                eprintln!("✓ [3/4] Generated 384-dimensional ONNX vector embeddings");
-            }
         }
+        eprintln!("✓ [3/4] Generated 384-dimensional ONNX vector embeddings");
     }
 
     /// Stage 4: Writing to SQLite database.
@@ -213,9 +207,7 @@ impl IndexProgressReporter {
             pb.finish_and_clear();
         }
 
-        if self.interactive {
-            eprintln!("✓ [4/4] Persisted document graph & vector indexes to SQLite");
-        }
+        eprintln!("✓ [4/4] Persisted document graph & vector indexes to SQLite");
     }
 }
 

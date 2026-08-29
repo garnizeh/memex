@@ -100,9 +100,7 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
 
     // 6. Full File Discovery & Ingestion with multi-stage progress reporting
     let config = MemexConfig::load_or_default(&resolved_path);
-    let mut reporter = crate::cli::progress::IndexProgressReporter::new(
-        !verbose && !std::io::IsTerminal::is_terminal(&std::io::stderr()),
-    );
+    let mut reporter = crate::cli::progress::IndexProgressReporter::new(false);
 
     reporter.start_scan();
     let scanned_files = FileDiscovery::scan(&resolved_path, &config)?;
