@@ -266,7 +266,7 @@ Implement interactive and automated agent configuration injection for Claude Cod
   - **Deliverable:** Trait and registry module in `src/installer/targets/`.
   - **Verification:** Unit test detecting simulated agent configs in temporary home directory.
 
-- [ ] **TASK-8.3: Claude Code Installer Target (`src/installer/targets/claude.rs`)**
+- [x] **TASK-8.3: Claude Code Installer Target (`src/installer/targets/claude.rs`)**
   - **Description:** Implement Claude Code target:
     1. Write MCP server entry `{"mcpServers": {"memex": {"type": "stdio", "command": "memex", "args": ["serve", "--mcp"]}}}` into `~/.claude.json` (global) or `.mcp.json` (local).
     2. Write permissions `{"permissions": {"allow": ["mcp__memex__*"]}}` into `~/.claude/settings.json`.
