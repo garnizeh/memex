@@ -78,22 +78,20 @@ impl McpServer {
     pub fn with_components(db: Database, engine: Arc<EmbeddingEngine>) -> Self {
         Self {
             target_path: None,
-            db: Arc::new(Mutex::new(Some((
-                std::path::PathBuf::from("/"),
-                db,
-            )))),
+            db: Arc::new(Mutex::new(Some((std::path::PathBuf::from("/"), db)))),
             engine,
         }
     }
 
     /// Creates an `McpServer` with an explicit root directory, `Database`, and `EmbeddingEngine` (useful for testing).
-    pub fn with_root_and_components(root: std::path::PathBuf, db: Database, engine: Arc<EmbeddingEngine>) -> Self {
+    pub fn with_root_and_components(
+        root: std::path::PathBuf,
+        db: Database,
+        engine: Arc<EmbeddingEngine>,
+    ) -> Self {
         Self {
             target_path: Some(root.clone()),
-            db: Arc::new(Mutex::new(Some((
-                root,
-                db,
-            )))),
+            db: Arc::new(Mutex::new(Some((root, db)))),
             engine,
         }
     }
