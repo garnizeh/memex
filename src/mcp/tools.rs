@@ -4,7 +4,7 @@ use crate::errors::{MemexError, Result};
 use crate::ingestion::embedder::{EmbeddingEngine, ModelManager};
 use crate::mcp::types::{CallToolResult, SearchDocumentationParams};
 use crate::storage::db::Database;
-use crate::storage::reader::{SearchResult, StorageReader};
+use crate::storage::reader::{SearchResult, StorageReader, Subgraph};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -14,6 +14,12 @@ pub const DEFAULT_SEARCH_LIMIT: usize = 5;
 
 /// Maximum allowed limit for search results.
 pub const MAX_SEARCH_LIMIT: usize = 20;
+
+/// Default depth for graph traversal if not specified or set to 0.
+pub const DEFAULT_TRAVERSE_DEPTH: u32 = 2;
+
+/// Maximum allowed depth for graph traversal.
+pub const MAX_TRAVERSE_DEPTH: u32 = 5;
 
 /// Structured representation of a documentation chunk returned by semantic search.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,6 +105,89 @@ pub fn normalize_search_limit(limit: usize) -> usize {
     }
 }
 
+/// Normalizes and clamps the graph traversal depth to valid bounds `[1, MAX_TRAVERSE_DEPTH]`.
+pub fn normalize_traverse_depth(depth: usize) -> u32 {
+    if depth == 0 {
+        DEFAULT_TRAVERSE_DEPTH
+    } else {
+        (depth as u32).min(MAX_TRAVERSE_DEPTH)
+    }
+}
+
+/// Formats a traversed [`Subgraph`] into structured Markdown for an LLM / MCP client.
+pub fn format_subgraph_markdown(subgraph: &Subgraph) -> String {
+    let root = match &subgraph.root {
+        Some(r) => r,
+        None => return "Chunk not found in knowledge graph.\n".to_string(),
+    };
+
+    let mut out = String::new();
+
+    let root_heading_crumb = if root.heading_path.is_empty() {
+        "Document Root".to_string()
+    } else {
+        root.heading_path.join(" > ")
+    };
+
+    out.push_str(&format!(
+        "## Traversal Context for Chunk: `{}`\n**Section:** {}\n**Lines:** {}-{}\n\n",
+        root.id, root_heading_crumb, root.line_start, root.line_end
+    ));
+
+    out.push_str("### Focal Chunk Content\n");
+    out.push_str(root.content.trim());
+    out.push_str("\n\n");
+
+    // Other nodes in the subgraph
+    let other_nodes: Vec<_> = subgraph.nodes.iter().filter(|n| n.id != root.id).collect();
+
+    if !other_nodes.is_empty() {
+        out.push_str("### Surrounding Context & Connected Nodes\n");
+        for node in other_nodes {
+            let heading_crumb = if node.heading_path.is_empty() {
+                "Root".to_string()
+            } else {
+                node.heading_path.join(" > ")
+            };
+
+            out.push_str(&format!(
+                "\n#### [{}] (lines {}-{})\n{}\n",
+                heading_crumb,
+                node.line_start,
+                node.line_end,
+                node.content.trim()
+            ));
+        }
+    }
+
+    if !subgraph.edges.is_empty() {
+        out.push_str("\n### Graph Relationships\n");
+        for edge in &subgraph.edges {
+            match edge.edge_type {
+                crate::models::EdgeType::Hierarchy => {
+                    out.push_str(&format!(
+                        "- Hierarchy: `{}` → `{}`\n",
+                        edge.source_chunk_id, edge.target_chunk_id
+                    ));
+                }
+                crate::models::EdgeType::ExplicitLink => {
+                    let link_desc = edge
+                        .link_text
+                        .as_deref()
+                        .map(|t| format!(" (text: \"{t}\")"))
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "- Link{}: `{}` → `{}`\n",
+                        link_desc, edge.source_chunk_id, edge.target_chunk_id
+                    ));
+                }
+            }
+        }
+    }
+
+    out
+}
+
 /// Executes documentation semantic search using a provided [`StorageReader`] and [`EmbeddingEngine`].
 pub fn search_documentation_with_reader(
     reader: &StorageReader,
@@ -120,7 +209,8 @@ pub fn search_documentation_with_reader(
     let raw_results = reader.search_knn(&query_vec, effective_limit)?;
 
     // 3. Map to structured DocSearchResult
-    let results: Vec<DocSearchResult> = raw_results.into_iter().map(DocSearchResult::from).collect();
+    let results: Vec<DocSearchResult> =
+        raw_results.into_iter().map(DocSearchResult::from).collect();
 
     Ok(results)
 }
@@ -145,9 +235,17 @@ pub fn handle_search_documentation_json(
     let params: SearchDocumentationParams = match arguments {
         Some(val) => match serde_json::from_value(val) {
             Ok(p) => p,
-            Err(e) => return CallToolResult::error(format!("Invalid search_documentation arguments: {e}")),
+            Err(e) => {
+                return CallToolResult::error(format!(
+                    "Invalid search_documentation arguments: {e}"
+                ))
+            }
         },
-        None => return CallToolResult::error("Missing required 'query' argument for search_documentation"),
+        None => {
+            return CallToolResult::error(
+                "Missing required 'query' argument for search_documentation",
+            )
+        }
     };
 
     match handle_search_documentation(reader, engine, params) {
@@ -156,9 +254,64 @@ pub fn handle_search_documentation_json(
     }
 }
 
+/// Executes graph traversal around a chunk ID using a provided [`StorageReader`].
+pub fn traverse_graph_with_reader(
+    reader: &StorageReader,
+    chunk_id: &str,
+    depth: usize,
+) -> Result<crate::storage::reader::Subgraph> {
+    let trimmed = chunk_id.trim();
+    if trimmed.is_empty() {
+        return Ok(crate::storage::reader::Subgraph::default());
+    }
+
+    let effective_depth = normalize_traverse_depth(depth);
+    reader.traverse_subgraph(trimmed, effective_depth)
+}
+
+/// Handles the MCP `traverse_graph` tool invocation given strongly-typed parameters.
+pub fn handle_traverse_graph(
+    reader: &StorageReader,
+    params: crate::mcp::types::TraverseGraphParams,
+) -> Result<CallToolResult> {
+    let trimmed_id = params.chunk_id.trim();
+    if trimmed_id.is_empty() {
+        return Err(MemexError::InvalidToolArgs {
+            reason: "chunk_id parameter cannot be empty".to_string(),
+        });
+    }
+
+    let subgraph = traverse_graph_with_reader(reader, trimmed_id, params.depth)?;
+    let markdown = format_subgraph_markdown(&subgraph);
+    Ok(CallToolResult::text(markdown))
+}
+
+/// Handles the MCP `traverse_graph` tool invocation from raw JSON parameters.
+pub fn handle_traverse_graph_json(
+    reader: &StorageReader,
+    arguments: Option<Value>,
+) -> CallToolResult {
+    let params: crate::mcp::types::TraverseGraphParams = match arguments {
+        Some(val) => match serde_json::from_value(val) {
+            Ok(p) => p,
+            Err(e) => {
+                return CallToolResult::error(format!("Invalid traverse_graph arguments: {e}"))
+            }
+        },
+        None => {
+            return CallToolResult::error("Missing required 'chunk_id' argument for traverse_graph")
+        }
+    };
+
+    match handle_traverse_graph(reader, params) {
+        Ok(result) => result,
+        Err(e) => CallToolResult::error(format!("Traversal failed: {e}")),
+    }
+}
+
 /// Programmatic helper to execute `search_documentation` directly against a project path.
 ///
-/// Discovers the `.memex/index.db` file, loads the embedding engine, and executes the search.
+/// Discovers the `.memex/memex.db` file, loads the embedding engine, and executes the search.
 pub fn search_documentation(
     project_path: impl AsRef<Path>,
     query: &str,
@@ -186,10 +339,38 @@ pub fn search_documentation(
     search_documentation_with_reader(&reader, &engine, query, limit)
 }
 
+/// Programmatic helper to execute `traverse_graph` directly against a project path.
+///
+/// Discovers the `.memex/memex.db` file and executes the traversal.
+pub fn traverse_graph(
+    project_path: impl AsRef<Path>,
+    chunk_id: &str,
+    depth: usize,
+) -> Result<crate::storage::reader::Subgraph> {
+    let root = crate::cli::index::find_project_root(project_path.as_ref())?;
+    let mut db_path = root.join(".memex").join("memex.db");
+    if !db_path.exists() {
+        let alt_path = root.join(".memex").join("index.db");
+        if alt_path.exists() {
+            db_path = alt_path;
+        } else {
+            return Err(MemexError::NotInitialized {
+                path: project_path.as_ref().display().to_string(),
+            });
+        }
+    }
+
+    let db = Database::open_readonly(&db_path)?;
+    let reader = StorageReader::new(db.conn());
+
+    traverse_graph_with_reader(&reader, chunk_id, depth)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cli::init::init_project_with_embedder;
+    use crate::models::{Chunk, ChunkType, Edge, EdgeType};
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
@@ -253,9 +434,13 @@ mod tests {
         let md = format_search_markdown("how does OAuth2 authentication work", &items);
 
         assert!(md.contains("## Results for: \"how does OAuth2 authentication work\""));
-        assert!(md.contains("### 1. docs/api/auth.md > Authentication > OAuth2 (lines 45-67, score: 0.89)"));
+        assert!(md.contains(
+            "### 1. docs/api/auth.md > Authentication > OAuth2 (lines 45-67, score: 0.89)"
+        ));
         assert!(md.contains("The client must send a Bearer token in the Authorization header."));
-        assert!(md.contains("### 2. docs/api/auth.md > Authentication > Token Refresh (lines 70-85, score: 0.76)"));
+        assert!(md.contains(
+            "### 2. docs/api/auth.md > Authentication > Token Refresh (lines 70-85, score: 0.76)"
+        ));
         assert!(md.contains("Access tokens expire after 3600 seconds."));
         assert!(md.contains("### 3. README.md (lines 1-10, score: 0.65)"));
         assert!(md.contains("Project overview documentation."));
@@ -286,7 +471,8 @@ mod tests {
         }
 
         // Invalid JSON type (missing query field)
-        let res_invalid = handle_search_documentation_json(&reader, &engine, Some(json!({"limit": 5})));
+        let res_invalid =
+            handle_search_documentation_json(&reader, &engine, Some(json!({"limit": 5})));
         assert_eq!(res_invalid.is_error, Some(true));
         match &res_invalid.content[0] {
             crate::mcp::types::ToolContent::Text { text } => {
@@ -327,7 +513,8 @@ mod tests {
         let res_empty = search_documentation_with_reader(&reader, &engine, "", 5).unwrap();
         assert!(res_empty.is_empty());
 
-        let res_spaces = search_documentation_with_reader(&reader, &engine, "   \t\n  ", 5).unwrap();
+        let res_spaces =
+            search_documentation_with_reader(&reader, &engine, "   \t\n  ", 5).unwrap();
         assert!(res_spaces.is_empty());
     }
 
@@ -425,5 +612,149 @@ mod tests {
             "top result should be from database.md, got: {}",
             db_results[0].file_path
         );
+
+        // 4. Test traverse_graph programmatic helper
+        let first_auth_chunk_id = &results[0].chunk_id;
+        let subgraph = traverse_graph(project_dir, first_auth_chunk_id, 2)
+            .expect("traverse_graph should succeed");
+
+        assert!(subgraph.root.is_some());
+        assert_eq!(subgraph.root.as_ref().unwrap().id, *first_auth_chunk_id);
+        assert!(!subgraph.nodes.is_empty());
+
+        // 5. Test handle_traverse_graph_json tool handler
+        let traverse_tool_res = handle_traverse_graph_json(
+            &reader,
+            Some(json!({
+                "chunk_id": first_auth_chunk_id,
+                "depth": 2
+            })),
+        );
+        assert_eq!(traverse_tool_res.is_error, None);
+        match &traverse_tool_res.content[0] {
+            crate::mcp::types::ToolContent::Text { text } => {
+                assert!(text.contains("## Traversal Context for Chunk:"));
+                assert!(text.contains(first_auth_chunk_id));
+                assert!(text.contains("### Focal Chunk Content"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_normalize_traverse_depth() {
+        assert_eq!(normalize_traverse_depth(0), 2);
+        assert_eq!(normalize_traverse_depth(1), 1);
+        assert_eq!(normalize_traverse_depth(2), 2);
+        assert_eq!(normalize_traverse_depth(5), 5);
+        assert_eq!(normalize_traverse_depth(10), 5);
+    }
+
+    #[test]
+    fn test_format_subgraph_markdown_empty_and_populated() {
+        let empty_subgraph = Subgraph::default();
+        let md_empty = format_subgraph_markdown(&empty_subgraph);
+        assert_eq!(md_empty, "Chunk not found in knowledge graph.\n");
+
+        let root_chunk = Chunk {
+            id: "chk_root".to_string(),
+            doc_id: "doc_1".to_string(),
+            parent_chunk_id: None,
+            chunk_type: ChunkType::Heading { level: 1 },
+            heading_path: vec!["Root Heading".to_string()],
+            content: "# Root Heading".to_string(),
+            contextual_content: "# Root Heading".to_string(),
+            line_start: 1,
+            line_end: 1,
+        };
+
+        let child_chunk = Chunk {
+            id: "chk_child".to_string(),
+            doc_id: "doc_1".to_string(),
+            parent_chunk_id: Some("chk_root".to_string()),
+            chunk_type: ChunkType::Paragraph,
+            heading_path: vec!["Root Heading".to_string(), "Section 1".to_string()],
+            content: "Child paragraph content.".to_string(),
+            contextual_content: "[Root Heading > Section 1] Child paragraph content.".to_string(),
+            line_start: 3,
+            line_end: 6,
+        };
+
+        let edge_hier = Edge {
+            source_chunk_id: "chk_root".to_string(),
+            target_chunk_id: "chk_child".to_string(),
+            edge_type: EdgeType::Hierarchy,
+            link_text: None,
+        };
+
+        let edge_link = Edge {
+            source_chunk_id: "chk_child".to_string(),
+            target_chunk_id: "chk_root".to_string(),
+            edge_type: EdgeType::ExplicitLink,
+            link_text: Some("Back to Top".to_string()),
+        };
+
+        let populated = Subgraph {
+            root: Some(root_chunk.clone()),
+            nodes: vec![root_chunk, child_chunk],
+            edges: vec![edge_hier, edge_link],
+        };
+
+        let md = format_subgraph_markdown(&populated);
+        assert!(md.contains("## Traversal Context for Chunk: `chk_root`"));
+        assert!(md.contains("**Section:** Root Heading"));
+        assert!(md.contains("### Focal Chunk Content"));
+        assert!(md.contains("# Root Heading"));
+        assert!(md.contains("### Surrounding Context & Connected Nodes"));
+        assert!(md.contains("#### [Root Heading > Section 1] (lines 3-6)"));
+        assert!(md.contains("Child paragraph content."));
+        assert!(md.contains("### Graph Relationships"));
+        assert!(md.contains("- Hierarchy: `chk_root` → `chk_child`"));
+        assert!(md.contains("- Link (text: \"Back to Top\"): `chk_child` → `chk_root`"));
+    }
+
+    #[test]
+    fn test_handle_traverse_graph_json_argument_validation() {
+        let db = Database::open_in_memory().unwrap();
+        crate::storage::schema::initialize_schema(db.conn()).unwrap();
+        let reader = StorageReader::new(db.conn());
+
+        // Missing arguments
+        let res_none = handle_traverse_graph_json(&reader, None);
+        assert_eq!(res_none.is_error, Some(true));
+        match &res_none.content[0] {
+            crate::mcp::types::ToolContent::Text { text } => {
+                assert!(text.contains("Missing required 'chunk_id' argument"));
+            }
+        }
+
+        // Invalid arguments (missing chunk_id field)
+        let res_invalid = handle_traverse_graph_json(&reader, Some(json!({"depth": 3})));
+        assert_eq!(res_invalid.is_error, Some(true));
+        match &res_invalid.content[0] {
+            crate::mcp::types::ToolContent::Text { text } => {
+                assert!(text.contains("Invalid traverse_graph arguments"));
+            }
+        }
+
+        // Empty chunk_id field
+        let res_empty_id = handle_traverse_graph_json(&reader, Some(json!({"chunk_id": "   "})));
+        assert_eq!(res_empty_id.is_error, Some(true));
+        match &res_empty_id.content[0] {
+            crate::mcp::types::ToolContent::Text { text } => {
+                assert!(text.contains("chunk_id parameter cannot be empty"));
+            }
+        }
+
+        // Valid arguments on non-existent chunk in DB
+        let res_valid = handle_traverse_graph_json(
+            &reader,
+            Some(json!({"chunk_id": "chk_nonexistent", "depth": 2})),
+        );
+        assert_eq!(res_valid.is_error, None);
+        match &res_valid.content[0] {
+            crate::mcp::types::ToolContent::Text { text } => {
+                assert!(text.contains("Chunk not found in knowledge graph."));
+            }
+        }
     }
 }

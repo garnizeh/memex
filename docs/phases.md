@@ -238,7 +238,7 @@ Implement stdio JSON-RPC 2.0 transport, tool definitions, request routing, and q
   - **Deliverable:** Tool execution function for `search_documentation`.
   - **Verification:** Integration test calling search on indexed test fixture and verifying structured output.
 
-- [ ] **TASK-7.4: Tool Handler: `traverse_graph` (`src/mcp/tools.rs`)**
+- [x] **TASK-7.4: Tool Handler: `traverse_graph` (`src/mcp/tools.rs`)**
   - **Description:** Implement tool handler: (1) fetch chunk by ID, (2) traverse upward ancestors via recursive CTE, (3) fetch downward/explicit edges, (4) format hierarchical context markdown.
   - **Deliverable:** Tool execution function for `traverse_graph`.
   - **Verification:** Integration test requesting traversal of nested section chunk ID.
