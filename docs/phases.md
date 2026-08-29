@@ -106,7 +106,7 @@ Implement directory walking, `.gitignore` parsing, custom `memex.json` rules, an
   - **Deliverable:** Function with tests covering paths, canonicalization, and symlinks.
   - **Verification:** Unit tests asserting refusal for home dir and acceptance for normal subdirectories.
 
-- [ ] **TASK-3.2: Recursive File Walker (`src/discovery/walker.rs`)**
+- [x] **TASK-3.2: Recursive File Walker (`src/discovery/walker.rs`)**
   - **Description:** Implement scanner using `ignore` and `walkdir` crates finding `.md` and `.markdown` files. Built-in skips for `.git/`, `node_modules/`, `target/`, `dist/`, `.memex/`, and hidden directories.
   - **Deliverable:** `FileDiscovery::scan(root: &Path, config: &MemexConfig) -> Result<Vec<PathBuf>>`.
   - **Verification:** Unit test scanning fixture directory with mixed extensions and hidden folders.

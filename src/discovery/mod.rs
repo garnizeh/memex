@@ -1,6 +1,8 @@
 pub mod gitignore;
 pub mod walker;
 
+pub use walker::{is_markdown_file, FileDiscovery};
+
 use std::path::Path;
 
 /// Validates whether a directory is safe to use as a project root for indexing.
