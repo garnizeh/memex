@@ -174,11 +174,33 @@ pub fn run_prompt_hook() -> Result<()> {
         return Ok(());
     }
 
-    let mut context_md = String::from(
-        "<!-- MEMEX_DOCS_START -->\n### Relevant Project Documentation (via Memex):\n",
+    // Count unique documents
+    let mut unique_docs = std::collections::HashSet::new();
+    for item in &results {
+        unique_docs.insert(&item.file_path);
+    }
+    let doc_count = unique_docs.len();
+    let result_count = results.len();
+
+    let doc_str = if doc_count == 1 {
+        "document"
+    } else {
+        "documents"
+    };
+    let res_str = if result_count == 1 {
+        "result"
+    } else {
+        "results"
+    };
+
+    // Format XML context matching Claude Code agent harness expectations
+    let mut xml_output = format!(
+        "<memex_context note=\"Semantic documentation search results from Memex\">\n**Exploration:** {}\n\nFound {} {} across {} {}.\n\n**Documentation References:**\n",
+        prompt_text, result_count, res_str, doc_count, doc_str
     );
+
     for (i, item) in results.iter().enumerate() {
-        context_md.push_str(&format!(
+        xml_output.push_str(&format!(
             "\n#### [{}] {} > {} (lines {}-{}, score: {:.2})\n{}\n",
             i + 1,
             item.file_path,
@@ -189,20 +211,28 @@ pub fn run_prompt_hook() -> Result<()> {
             item.content
         ));
     }
-    context_md.push_str("\n<!-- MEMEX_DOCS_END -->\n");
+    xml_output.push_str("\n</memex_context>\n");
 
+    log_debug(&format!("Writing XML output to stdout:\n{}", xml_output));
+    let mut stdout = io::stdout().lock();
+    let _ = writeln!(stdout, "{}", xml_output);
+    let _ = stdout.flush();
+
+    // NOTE: Preserved legacy JSON output mode for future protocol changes or alternative harnesses.
+    // To re-enable JSON mode, uncomment the following block and disable direct XML write above:
+    /*
     let output = PromptHookOutput {
         hook_specific_output: Some(HookSpecificOutput {
-            additional_context: Some(context_md),
+            additional_context: Some(xml_output),
         }),
     };
-
     if let Ok(json_str) = serde_json::to_string(&output) {
         log_debug(&format!("Writing output JSON to stdout: {}", json_str));
         let mut stdout = io::stdout().lock();
         let _ = writeln!(stdout, "{}", json_str);
         let _ = stdout.flush();
     }
+    */
 
     Ok(())
 }
