@@ -665,11 +665,12 @@ impl ContextualChunker {
             if ch.is_alphanumeric() {
                 slug.push(ch.to_ascii_lowercase());
                 prev_is_dash = false;
-            } else if ch.is_whitespace() || ch == '-' || ch == '_' {
-                if !prev_is_dash && !slug.is_empty() {
-                    slug.push('-');
-                    prev_is_dash = true;
-                }
+            } else if (ch.is_whitespace() || ch == '-' || ch == '_')
+                && !prev_is_dash
+                && !slug.is_empty()
+            {
+                slug.push('-');
+                prev_is_dash = true;
             }
         }
 
