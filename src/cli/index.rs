@@ -212,11 +212,30 @@ impl IndexStats {
 pub trait ChunkEmbedder {
     /// Computes normalized 384-dimensional embedding vectors for a batch of text slices.
     fn embed_chunks(&self, texts: &[&str]) -> Result<Vec<[f32; EMBEDDING_DIM]>>;
+
+    /// Computes normalized embedding vectors reporting progress in batch increments to `on_progress`.
+    fn embed_chunks_with_progress<P: Fn(usize)>(
+        &self,
+        texts: &[&str],
+        on_progress: P,
+    ) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+        let results = self.embed_chunks(texts)?;
+        on_progress(results.len());
+        Ok(results)
+    }
 }
 
 impl ChunkEmbedder for EmbeddingEngine {
     fn embed_chunks(&self, texts: &[&str]) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
         self.embed_batch_str(texts)
+    }
+
+    fn embed_chunks_with_progress<P: Fn(usize)>(
+        &self,
+        texts: &[&str],
+        on_progress: P,
+    ) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+        self.embed_batch_str_with_progress(texts, on_progress)
     }
 }
 
@@ -369,6 +388,17 @@ impl<'a> IndexCoordinator<'a> {
         delta: &IndexDelta,
         embedder: &E,
     ) -> Result<IndexStats> {
+        let mut reporter = crate::cli::progress::IndexProgressReporter::silent();
+        self.process_delta_with_reporter(delta, embedder, &mut reporter)
+    }
+
+    /// Coordinates ingestion, embedding, and persistence with an active progress reporter.
+    pub fn process_delta_with_reporter<E: ChunkEmbedder>(
+        &mut self,
+        delta: &IndexDelta,
+        embedder: &E,
+        reporter: &mut crate::cli::progress::IndexProgressReporter,
+    ) -> Result<IndexStats> {
         let start_time = Instant::now();
         let mut error_recorder = ErrorLogRecorder::new(self.root);
 
@@ -409,6 +439,8 @@ impl<'a> IndexCoordinator<'a> {
         let mut files_to_process = Vec::new();
         files_to_process.extend(delta.added.iter().map(|p| (p, true))); // (path, is_added)
         files_to_process.extend(delta.modified.iter().map(|p| (p, false))); // (path, is_modified)
+
+        reporter.start_parsing(files_to_process.len());
 
         let mut new_docs: Vec<Document> = Vec::new();
         let mut all_chunks: Vec<Chunk> = Vec::new();
@@ -489,7 +521,10 @@ impl<'a> IndexCoordinator<'a> {
         let mut all_edges = all_hierarchy_edges;
         all_edges.extend(all_explicit_edges);
 
-        // 4. Batched vector embeddings for all chunks
+        reporter.finish_parsing(all_chunks.len(), all_edges.len());
+
+        // 4. Batched vector embeddings for all chunks with real-time throughput progress
+        reporter.start_embeddings(all_chunks.len());
         let embeddings = if all_chunks.is_empty() {
             Vec::new()
         } else {
@@ -497,8 +532,11 @@ impl<'a> IndexCoordinator<'a> {
                 .iter()
                 .map(|c| c.contextual_content.as_str())
                 .collect();
-            embedder.embed_chunks(&texts)?
+            embedder.embed_chunks_with_progress(&texts, |count| {
+                reporter.step_embeddings(count);
+            })?
         };
+        reporter.finish_embeddings();
 
         if embeddings.len() != all_chunks.len() && !all_chunks.is_empty() {
             return Err(MemexError::EmbeddingError {
@@ -513,6 +551,7 @@ impl<'a> IndexCoordinator<'a> {
         }
 
         // 5. Execute all mutations in a single atomic SQLite transaction
+        reporter.start_writing_db();
         let tx = self.db.conn_mut().transaction()?;
 
         // 5a. Delete removed documents (cascade deletes chunks, edges, vec_chunks)
@@ -554,6 +593,7 @@ impl<'a> IndexCoordinator<'a> {
 
         // 5g. Commit transaction atomically
         tx.commit()?;
+        reporter.finish_writing_db();
 
         // 6. Write or clear .memex/errors.log
         error_recorder.sync()?;
@@ -628,6 +668,16 @@ pub fn index_project_with_embedder<E: ChunkEmbedder>(
     root: &Path,
     embedder: &E,
 ) -> Result<IndexStats> {
+    let mut reporter = crate::cli::progress::IndexProgressReporter::silent();
+    index_project_with_embedder_and_reporter(root, embedder, &mut reporter)
+}
+
+/// Performs incremental indexing of a project root directory with progress reporting.
+pub fn index_project_with_embedder_and_reporter<E: ChunkEmbedder>(
+    root: &Path,
+    embedder: &E,
+    reporter: &mut crate::cli::progress::IndexProgressReporter,
+) -> Result<IndexStats> {
     let memex_dir = root.join(".memex");
     let db_path = memex_dir.join("memex.db");
     if !db_path.exists() {
@@ -638,10 +688,14 @@ pub fn index_project_with_embedder<E: ChunkEmbedder>(
 
     let mut db = Database::open(&db_path)?;
     let config = MemexConfig::load_or_default(root);
-    let scanned_files = FileDiscovery::scan(root, &config)?;
 
+    reporter.start_scan();
+    let scanned_files = FileDiscovery::scan(root, &config)?;
     let delta = DeltaClassifier::compute_with_root(root, &scanned_files, &db)?;
-    let stats = IndexCoordinator::new(root, &mut db).process_delta(&delta, embedder)?;
+    reporter.finish_scan(delta.total_scanned(), delta.total_changes());
+
+    let stats = IndexCoordinator::new(root, &mut db)
+        .process_delta_with_reporter(&delta, embedder, reporter)?;
 
     Ok(stats)
 }
@@ -666,7 +720,8 @@ pub fn run_index_with_embedder<E: ChunkEmbedder>(
         eprintln!("Found Memex project root at '{}'", root.display());
     }
 
-    let stats = index_project_with_embedder(&root, embedder)?;
+    let mut reporter = crate::cli::progress::IndexProgressReporter::new(quiet);
+    let stats = index_project_with_embedder_and_reporter(&root, embedder, &mut reporter)?;
 
     if !quiet {
         if !stats.has_changes() {

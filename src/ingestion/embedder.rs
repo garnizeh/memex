@@ -387,6 +387,29 @@ impl EmbeddingEngine {
         Ok(all_embeddings)
     }
 
+    /// Computes normalized embedding vectors for a batch of string slices, reporting progress
+    /// as each sub-batch completes.
+    pub fn embed_batch_str_with_progress<P: Fn(usize)>(
+        &self,
+        texts: &[&str],
+        on_progress: P,
+    ) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut all_embeddings = Vec::with_capacity(texts.len());
+        for chunk in texts.chunks(DEFAULT_BATCH_SIZE) {
+            let tokenized = self.tokenizer_wrapper.encode_batch(chunk)?;
+            let chunk_embeddings = self.embed_tokenized_batch(&tokenized)?;
+            let count = chunk_embeddings.len();
+            all_embeddings.extend(chunk_embeddings);
+            on_progress(count);
+        }
+
+        Ok(all_embeddings)
+    }
+
     /// Computes normalized embedding vectors for a batch of `String`s, automatically
     /// partitioning into sub-batches of up to `DEFAULT_BATCH_SIZE` (64).
     pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
