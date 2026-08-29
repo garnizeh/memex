@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 use tracing::warn;
 
@@ -59,62 +58,37 @@ impl FileDiscovery {
             return Ok(Vec::new());
         }
 
-        // Build override rules for built-ins, config excludes, and config includes
-        let mut override_builder = OverrideBuilder::new(root);
+        let filter = crate::discovery::PathFilter::new(root, config)?;
 
-        // Add built-in ignores
-        for dir in BUILTIN_IGNORED_DIRS {
-            let pattern = format!("!{}/**", dir);
-            override_builder.add(&pattern).map_err(|e| MemexError::DiscoveryError {
-                path: root.display().to_string(),
-                reason: format!("Failed to add built-in exclude for '{}': {}", dir, e),
-            })?;
-        }
-
-        // Add config excludes
-        for pattern in &config.exclude {
-            let pat = if pattern.starts_with('!') {
-                pattern.clone()
-            } else {
-                format!("!{}", pattern)
-            };
-            override_builder.add(&pat).map_err(|e| MemexError::DiscoveryError {
-                path: root.display().to_string(),
-                reason: format!("Failed to add exclude pattern '{}': {}", pattern, e),
-            })?;
-        }
-
-        // Add config includes (override preceding excludes/gitignores)
-        for pattern in &config.include {
-            let pat = pattern.trim_start_matches('!');
-            override_builder.add(pat).map_err(|e| MemexError::DiscoveryError {
-                path: root.display().to_string(),
-                reason: format!("Failed to add include pattern '{}': {}", pattern, e),
-            })?;
-        }
-
-        let overrides = override_builder.build().map_err(|e| MemexError::DiscoveryError {
-            path: root.display().to_string(),
-            reason: format!("Failed to build path overrides: {}", e),
-        })?;
+        // If include patterns are specified, we don't let git_ignore completely prune files upfront
+        // so that include overrides can recover gitignored files, but instead filter through PathFilter.
+        let has_custom_includes = !config.include.is_empty();
 
         let mut walker = WalkBuilder::new(root);
         walker
             .hidden(true)
             .parents(true)
-            .git_ignore(true)
-            .git_global(true)
-            .git_exclude(true)
+            .git_ignore(!has_custom_includes)
+            .git_global(!has_custom_includes)
+            .git_exclude(!has_custom_includes)
             .require_git(false)
-            .overrides(overrides)
-            .filter_entry(|entry| {
-                // Prune strictly critical internal directories
-                if let Some(name) = entry.file_name().to_str() {
-                    if name == ".git" || name == ".memex" {
+            .filter_entry({
+                let filter = filter.clone();
+                move |entry| {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name == ".git" || name == ".memex" {
+                            return false;
+                        }
+                        if BUILTIN_IGNORED_DIRS.contains(&name) {
+                            return false;
+                        }
+                    }
+                    let is_dir = entry.file_type().map_or(false, |ft| ft.is_dir());
+                    if is_dir && filter.is_ignored(entry.path(), true) {
                         return false;
                     }
+                    true
                 }
-                true
             });
 
         let mut discovered = Vec::new();
@@ -123,9 +97,11 @@ impl FileDiscovery {
             match result {
                 Ok(entry) => {
                     let path = entry.path();
-                    if entry.file_type().is_some_and(|ft| ft.is_file()) && is_markdown_file(path)
-                    {
-                        discovered.push(path.to_path_buf());
+                    let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
+                    if !is_dir && is_markdown_file(path) {
+                        if !filter.is_ignored(path, false) {
+                            discovered.push(path.to_path_buf());
+                        }
                     }
                 }
                 Err(err) => {
@@ -139,6 +115,7 @@ impl FileDiscovery {
         }
 
         discovered.sort();
+        discovered.dedup();
         Ok(discovered)
     }
 }
@@ -270,5 +247,87 @@ mod tests {
         let config = MemexConfig::default();
         let results = FileDiscovery::scan(temp.path(), &config).unwrap();
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_scan_respects_gitignore() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        let allowed = root.join("allowed.md");
+        let ignored = root.join("ignored.md");
+        let sub_ignored = root.join("drafts").join("wip.md");
+        fs::create_dir_all(sub_ignored.parent().unwrap()).unwrap();
+
+        fs::write(&allowed, "# Allowed").unwrap();
+        fs::write(&ignored, "# Ignored").unwrap();
+        fs::write(&sub_ignored, "# Draft").unwrap();
+
+        // Write .gitignore
+        let gitignore = root.join(".gitignore");
+        fs::write(&gitignore, "ignored.md\ndrafts/\n").unwrap();
+
+        let config = MemexConfig::default();
+        let results = FileDiscovery::scan(root, &config).unwrap();
+
+        assert_eq!(results, vec![allowed]);
+    }
+
+    #[test]
+    fn test_scan_respects_custom_exclude() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        let doc1 = root.join("doc1.md");
+        let doc2 = root.join("temp_notes.md");
+        let doc3 = root.join("archive").join("old.md");
+        fs::create_dir_all(doc3.parent().unwrap()).unwrap();
+
+        fs::write(&doc1, "# Doc 1").unwrap();
+        fs::write(&doc2, "# Temp Notes").unwrap();
+        fs::write(&doc3, "# Old").unwrap();
+
+        let config = MemexConfig {
+            exclude: vec!["temp_*.md".to_string(), "archive/**".to_string()],
+            include: vec![],
+        };
+
+        let results = FileDiscovery::scan(root, &config).unwrap();
+        assert_eq!(results, vec![doc1]);
+    }
+
+    #[test]
+    fn test_scan_custom_include_overrides_gitignore_and_exclude() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        let normal = root.join("normal.md");
+        let gitignored_file = root.join("gitignored.md");
+        let excluded_file = root.join("excluded.md");
+        let force_included_gitignored = root.join("keep_this_ignored.md");
+        let force_included_excluded = root.join("keep_this_excluded.md");
+
+        fs::write(&normal, "# Normal").unwrap();
+        fs::write(&gitignored_file, "# Gitignored").unwrap();
+        fs::write(&excluded_file, "# Excluded").unwrap();
+        fs::write(&force_included_gitignored, "# Keep Gitignored").unwrap();
+        fs::write(&force_included_excluded, "# Keep Excluded").unwrap();
+
+        // .gitignore ignores gitignored.md and keep_this_ignored.md
+        let gitignore = root.join(".gitignore");
+        fs::write(&gitignore, "gitignored.md\nkeep_this_ignored.md\n").unwrap();
+
+        // config excludes excluded.md and keep_this_excluded.md, but includes keep_this_*.md
+        let config = MemexConfig {
+            exclude: vec!["excluded.md".to_string(), "keep_this_excluded.md".to_string()],
+            include: vec!["keep_this_ignored.md".to_string(), "keep_this_excluded.md".to_string()],
+        };
+
+        let results = FileDiscovery::scan(root, &config).unwrap();
+
+        let mut expected = vec![normal, force_included_excluded, force_included_gitignored];
+        expected.sort();
+
+        assert_eq!(results, expected);
     }
 }

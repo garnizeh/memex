@@ -111,7 +111,7 @@ Implement directory walking, `.gitignore` parsing, custom `memex.json` rules, an
   - **Deliverable:** `FileDiscovery::scan(root: &Path, config: &MemexConfig) -> Result<Vec<PathBuf>>`.
   - **Verification:** Unit test scanning fixture directory with mixed extensions and hidden folders.
 
-- [ ] **TASK-3.3: Gitignore & Custom Exclude / Include Integration**
+- [x] **TASK-3.3: Gitignore & Custom Exclude / Include Integration**
   - **Description:** Ensure `ignore::WalkBuilder` correctly layers `.gitignore` rules, then applies `memex.json` `exclude` globs, then applies `memex.json` `include` overrides.
   - **Deliverable:** Integrated filter chain in `discovery/walker.rs`.
   - **Verification:** Integration test with fixture containing ignored files and custom excluded/included paths.

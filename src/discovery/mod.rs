@@ -1,6 +1,7 @@
 pub mod gitignore;
 pub mod walker;
 
+pub use gitignore::PathFilter;
 pub use walker::{is_markdown_file, FileDiscovery};
 
 use std::path::Path;
