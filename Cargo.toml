@@ -18,7 +18,6 @@ tokio = { version = "1.53.1", features = ["full"] }
 # Serialization & Protocols
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-rmcp = { version = "3.1.4", optional = true }
 
 # Markdown Parsing
 pulldown-cmark = { version = "0.13.4", default-features = false }
@@ -64,3 +63,9 @@ required-features = []
 name = "bench_query"
 harness = false
 required-features = []
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = true

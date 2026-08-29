@@ -1,0 +1,4 @@
+# Memex local data files — local to each machine, not for committing.
+# Ignore everything in .memex/ except this file itself.
+*
+!.gitignore

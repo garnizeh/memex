@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (e.g. v0.1.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-please:
+    name: Release Please
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build-release:
+    name: Build Release - ${{ matrix.target }}
+    needs: [release-please]
+    if: |
+      always() &&
+      (
+        needs.release-please.outputs.release_created == 'true' ||
+        startsWith(github.ref, 'refs/tags/v') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: memex-linux-x86_64.tar.gz
+            binary_name: memex
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: memex-macos-arm64.tar.gz
+            binary_name: memex
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact_name: memex-macos-x86_64.tar.gz
+            binary_name: memex
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: memex-windows-x86_64.zip
+            binary_name: memex.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry & build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package release artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          tar -czf ${{ matrix.artifact_name }} -C target/${{ matrix.target }}/release ${{ matrix.binary_name }}
+          shasum -a 256 ${{ matrix.artifact_name }} > ${{ matrix.artifact_name }}.sha256
+
+      - name: Package release artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/${{ matrix.target }}/release/${{ matrix.binary_name }} -DestinationPath ${{ matrix.artifact_name }}
+          Get-FileHash -Algorithm SHA256 ${{ matrix.artifact_name }} | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } > "${{ matrix.artifact_name }}.sha256"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}
+            ${{ matrix.artifact_name }}.sha256
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [release-please, build-release]
+    if: |
+      always() &&
+      needs.build-release.result == 'success' &&
+      (
+        needs.release-please.outputs.release_created == 'true' ||
+        startsWith(github.ref, 'refs/tags/v') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Determine tag name
+        id: vars
+        run: |
+          if [ "${{ needs.release-please.outputs.release_created }}" = "true" ]; then
+            echo "tag=${{ needs.release-please.outputs.tag_name }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release with Assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: Release ${{ steps.vars.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

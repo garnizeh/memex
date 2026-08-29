@@ -87,6 +87,15 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
     // 4. Scaffolding
     std::fs::create_dir_all(&memex_dir)?;
 
+    // Create .memex/.gitignore so transient database and log files are ignored by default
+    let gitignore_path = memex_dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        let _ = std::fs::write(
+            &gitignore_path,
+            "# Memex local data files — local to each machine, not for committing.\n# Ignore everything in .memex/ except this file itself.\n*\n!.gitignore\n",
+        );
+    }
+
     // 5. Database Creation & Schema Initialization
     let mut db = Database::open(&db_path)?;
     initialize_schema(db.conn())?;

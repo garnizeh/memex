@@ -332,22 +332,22 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 
 ### Tasks
 
-- [ ] **TASK-10.1: Cargo Release Profile & Binary Optimization**
+- [x] **TASK-10.1: Cargo Release Profile & Binary Optimization**
   - **Description:** Configure `Cargo.toml` `[profile.release]` with `lto = "thin"`, `codegen-units = 1`, `opt-level = 3`, and `strip = true` to minimize binary footprint.
   - **Deliverable:** Optimized release profile in `Cargo.toml`.
   - **Verification:** `cargo build --release` produces standalone stripped binary.
 
-- [ ] **TASK-10.2: Makefile & Developer Workflow Verification**
+- [x] **TASK-10.2: Makefile & Developer Workflow Verification**
   - **Description:** Verify all Makefile targets work cleanly: `make check`, `make test`, `make bench`, `make fmt-check`, `make clippy`.
   - **Deliverable:** Fully functional `Makefile`.
   - **Verification:** Execute all Makefile targets in sequence.
 
-- [ ] **TASK-10.3: Git Hooks Sync Script Helper**
+- [x] **TASK-10.3: Git Hooks Sync Script Helper**
   - **Description:** Provide optional Git hook installation snippet (`post-commit`, `post-merge`, `post-checkout`) triggering `(memex index >/dev/null 2>&1 &)` in the background.
   - **Deliverable:** Documentation and hook installer helper.
   - **Verification:** Test running git commit and observing index refresh.
 
-- [ ] **TASK-10.4: End-to-End Real World Validation**
+- [x] **TASK-10.4: End-to-End Real World Validation**
   - **Description:** Test Memex on a real open-source documentation repo (e.g. Memex's own `docs/` folder): run `memex init`, start `memex serve --mcp`, query via test client, verify results relevance and latency.
   - **Deliverable:** End-to-end verification checklist report.
   - **Verification:** Validate that search queries return accurate documentation excerpts under 30ms.
@@ -359,13 +359,13 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 | Phase | Description | Task Count | Status |
 | :--- | :--- | :---: | :---: |
 | **Phase 1** | Foundations, Domain Models & Error Handling | 4 | Completed (4/4) |
-| **Phase 2** | Storage & Database Layer (`src/storage/`) | 6 | In Progress (2/6) |
-| **Phase 3** | File Discovery & Filtering (`src/discovery/`) | 4 | Pending |
-| **Phase 4** | Markdown Ingestion & Contextual Chunking (`src/ingestion/`) | 5 | Pending |
-| **Phase 5** | Local Embedding Engine (`src/ingestion/embedder.rs`) | 4 | Pending |
-| **Phase 6** | Indexing Pipeline & CLI Commands (`init`, `index`) | 5 | Pending |
-| **Phase 7** | MCP Server & Tools (`src/mcp/`, `serve`) | 5 | Pending |
-| **Phase 8** | Agent Auto-Installer (`src/installer/`, `install`) | 5 | Pending |
-| **Phase 9** | Test Suite, Benchmarks & Efficiency Gate | 5 | Pending |
-| **Phase 10** | Polishing, Packaging & Release Verification | 4 | Pending |
-| **Total** | **Full MVP Scope** | **47 Tasks** | **6 / 47 Completed** |
+| **Phase 2** | Storage & Database Layer (`src/storage/`) | 6 | Completed (6/6) |
+| **Phase 3** | File Discovery & Filtering (`src/discovery/`) | 4 | Completed (4/4) |
+| **Phase 4** | Markdown Ingestion & Contextual Chunking (`src/ingestion/`) | 5 | Completed (5/5) |
+| **Phase 5** | Local Embedding Engine (`src/ingestion/embedder.rs`) | 4 | Completed (4/4) |
+| **Phase 6** | Indexing Pipeline & CLI Commands (`init`, `index`) | 5 | Completed (5/5) |
+| **Phase 7** | MCP Server & Tools (`src/mcp/`, `serve`) | 5 | Completed (5/5) |
+| **Phase 8** | Agent Auto-Installer (`src/installer/`, `install`) | 5 | Completed (5/5) |
+| **Phase 9** | Test Suite, Benchmarks & Efficiency Gate | 5 | Completed (5/5) |
+| **Phase 10** | Polishing, Packaging & Release Verification | 4 | Completed (4/4) |
+| **Total** | **Full MVP Scope** | **47 Tasks** | **47 / 47 Completed** |
