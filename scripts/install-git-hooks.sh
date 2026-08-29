@@ -17,8 +17,6 @@ fi
 
 mkdir -p "$HOOKS_DIR"
 
-HOOK_TRIGGER_COMMENT="# Memex background index trigger"
-
 HOOKS=("post-commit" "post-merge" "post-checkout")
 
 for hook in "${HOOKS[@]}"; do
@@ -35,16 +33,16 @@ for hook in "${HOOKS[@]}"; do
         mv "$HOOK_FILE" "$LEGACY_HOOK_FILE"
         chmod +x "$LEGACY_HOOK_FILE"
 
-        cat << 'EOF' > "$HOOK_FILE"
+        cat << EOF > "$HOOK_FILE"
 #!/usr/bin/env bash
 # Managed by Memex installer
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LEGACY="$DIR/HOOK_NAME_PLACEHOLDER.pre-memex"
+DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+LEGACY="\$DIR/${hook}.pre-memex"
 
 # Run previous hook if it exists and preserve its exit status
 EXIT_CODE=0
-if [ -x "$LEGACY" ]; then
-    "$LEGACY" "$@" || EXIT_CODE=$?
+if [ -x "\$LEGACY" ]; then
+    "\$LEGACY" "\$@" || EXIT_CODE=\$?
 fi
 
 # Memex background index trigger
@@ -52,9 +50,8 @@ if command -v memex >/dev/null 2>&1; then
     (memex index --quiet >/dev/null 2>&1 &)
 fi
 
-exit $EXIT_CODE
+exit \$EXIT_CODE
 EOF
-        sed -i "s/HOOK_NAME_PLACEHOLDER/$hook/g" "$HOOK_FILE"
     else
         echo "Creating $hook hook..."
         cat << 'EOF' > "$HOOK_FILE"
