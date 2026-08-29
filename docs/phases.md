@@ -195,7 +195,7 @@ Orchestrate the ingestion, delta comparison, transaction commit, and terminal re
   - **Deliverable:** `DeltaClassifier::compute(scanned: &[PathBuf], db: &Database) -> Result<IndexDelta>`.
   - **Verification:** Unit tests verifying all 4 delta states with simulated disk/DB states.
 
-- [ ] **TASK-6.2: End-to-End Document Indexing Coordinator**
+- [x] **TASK-6.2: End-to-End Document Indexing Coordinator**
   - **Description:** Coordinate parsing -> chunking -> batch embedding -> database write. Delete removed/modified records within transaction before writing new chunks and vectors.
   - **Deliverable:** `IndexCoordinator::process_delta(delta: IndexDelta, ...) -> Result<IndexStats>`.
   - **Verification:** Integration test running indexing on a directory and verifying database consistency.
