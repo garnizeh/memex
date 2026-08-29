@@ -256,7 +256,7 @@ Implement interactive and automated agent configuration injection for Claude Cod
 
 ### Tasks
 
-- [ ] **TASK-8.1: Atomic File Mutation Helper (`src/installer/config_writer.rs`)**
+- [x] **TASK-8.1: Atomic File Mutation Helper (`src/installer/config_writer.rs`)**
   - **Description:** Implement `atomic_write_json(path: &Path, data: &Value) -> Result<()>` writing to `<path>.tmp.<pid>` then renaming. If existing file is invalid JSON, back it up to `<path>.backup` before rewriting.
   - **Deliverable:** File helper utility with unit tests.
   - **Verification:** Unit test testing atomic replacement and backup creation on corrupted input.
