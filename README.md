@@ -148,9 +148,14 @@ cargo test
 # Run efficiency benchmarks
 cargo bench
 
+# Run empirical real-world benchmark against repository docs
+cargo bench --bench run_empirical_benchmark
+
 # Run CI token efficiency gate (ensures >= 70% token reduction)
 cargo test --test test_token_reduction_gate -- --ignored
 ```
+
+📊 **Empirical Performance Report:** Check out [`docs/benchmark-report.md`](docs/benchmark-report.md) for the full empirical benchmark analysis proving **98.19% token reduction** and **~38ms average query latency** measured on this repository.
 
 ---
 
