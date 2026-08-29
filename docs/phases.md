@@ -101,7 +101,7 @@ Implement directory walking, `.gitignore` parsing, custom `memex.json` rules, an
 
 ### Tasks
 
-- [ ] **TASK-3.1: Unsafe Root Safety Validator (`src/discovery/mod.rs`)**
+- [x] **TASK-3.1: Unsafe Root Safety Validator (`src/discovery/mod.rs`)**
   - **Description:** Implement `unsafe_index_root_reason(path: &Path) -> Option<String>` checking if path matches `$HOME`, a filesystem root (`/`, `C:\`), or parent of `$HOME`.
   - **Deliverable:** Function with tests covering paths, canonicalization, and symlinks.
   - **Verification:** Unit tests asserting refusal for home dir and acceptance for normal subdirectories.
