@@ -107,7 +107,7 @@ pub fn vector_to_bytes(vector: &[f32]) -> Vec<u8> {
 
 /// Converts little-endian raw bytes back into a `Vec<f32>`.
 pub fn bytes_to_vector(bytes: &[u8]) -> Result<Vec<f32>> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(MemexError::VecExtension(format!(
             "Invalid vector byte length {}; must be a multiple of 4",
             bytes.len()

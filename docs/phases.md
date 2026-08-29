@@ -78,7 +78,7 @@ Implement the SQLite relational schema, WAL configuration, `sqlite-vec` virtual 
   - **Deliverable:** Safe wrapper loading extension on connection creation.
   - **Verification:** Unit test inserting and querying a dummy 384-dimensional float vector.
 
-- [ ] **TASK-2.4: Transactional Writer (`src/storage/writer.rs`)**
+- [x] **TASK-2.4: Transactional Writer (`src/storage/writer.rs`)**
   - **Description:** Implement transactional batch operations: (1) `insert_document`, (2) `insert_chunks_batch`, (3) `insert_edges_batch`, (4) `insert_vectors_batch`, (5) `delete_document` (ensuring `ON DELETE CASCADE` clears relational and vector records).
   - **Deliverable:** `StorageWriter` methods wrapping operations in `Transaction`.
   - **Verification:** Integration test asserting cascade deletion of chunks, edges, and vectors upon document deletion.
