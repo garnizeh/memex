@@ -1,8 +1,8 @@
 use super::common::{open_db, setup_indexed_project};
 use memex::ingestion::embedder::{EmbeddingEngine, ModelManager};
 use memex::mcp::tools::{
-    handle_search_documentation_json, handle_traverse_graph_json,
-    search_documentation_with_reader, traverse_graph_with_reader,
+    handle_search_documentation_json, handle_traverse_graph_json, search_documentation_with_reader,
+    traverse_graph_with_reader,
 };
 use memex::mcp::types::ToolContent;
 use memex::models::ChunkType;
@@ -65,10 +65,7 @@ fn test_traverse_graph_returns_ancestors_and_children() {
 
     // Should have the chunk itself, at least one ancestor or linked node
     assert!(subgraph.root.is_some(), "root chunk must be found");
-    assert!(
-        !subgraph.nodes.is_empty(),
-        "subgraph should contain nodes"
-    );
+    assert!(!subgraph.nodes.is_empty(), "subgraph should contain nodes");
     assert!(
         subgraph
             .nodes
@@ -88,10 +85,12 @@ fn test_search_empty_query_returns_graceful_response() {
     let engine = EmbeddingEngine::new(&assets).unwrap();
 
     let results = search_documentation_with_reader(&reader, &engine, "", 5).unwrap();
-    assert!(results.is_empty(), "empty query should return empty results");
+    assert!(
+        results.is_empty(),
+        "empty query should return empty results"
+    );
 
-    let results_spaces =
-        search_documentation_with_reader(&reader, &engine, "   ", 5).unwrap();
+    let results_spaces = search_documentation_with_reader(&reader, &engine, "   ", 5).unwrap();
     assert!(
         results_spaces.is_empty(),
         "whitespace query should return empty results"
@@ -105,7 +104,10 @@ fn test_traverse_nonexistent_chunk_returns_empty_subgraph() {
     let reader = db.reader();
 
     let subgraph = traverse_graph_with_reader(&reader, "nonexistent_id_abc123", 2).unwrap();
-    assert!(subgraph.root.is_none(), "root should be None for missing chunk");
+    assert!(
+        subgraph.root.is_none(),
+        "root should be None for missing chunk"
+    );
     assert!(subgraph.nodes.is_empty(), "nodes should be empty");
     assert!(subgraph.edges.is_empty(), "edges should be empty");
 }

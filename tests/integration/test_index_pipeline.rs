@@ -58,9 +58,13 @@ fn test_full_index_complex_fixtures() {
     let tmp = TempDir::new().unwrap();
     copy_fixtures("complex", tmp.path());
 
-    let stats = init_project(tmp.path(), false, false).expect("init should succeed on complex fixtures");
+    let stats =
+        init_project(tmp.path(), false, false).expect("init should succeed on complex fixtures");
 
-    assert!(stats.files_added >= 20, "complex fixtures should have 20+ files");
+    assert!(
+        stats.files_added >= 20,
+        "complex fixtures should have 20+ files"
+    );
     assert_eq!(stats.files_failed, 0);
     assert!(stats.chunks_indexed >= 20);
     assert!(stats.edges_created > 0);
@@ -105,7 +109,10 @@ fn test_index_edge_cases() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(large_file_chunks > 1000, "large_file.md should produce > 1000 chunks");
+    assert!(
+        large_file_chunks > 1000,
+        "large_file.md should produce > 1000 chunks"
+    );
 
     // Check no_headings file
     let no_headings_chunks: i64 = db
@@ -116,13 +123,17 @@ fn test_index_edge_cases() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(no_headings_chunks > 0, "no_headings.md should produce chunks");
+    assert!(
+        no_headings_chunks > 0,
+        "no_headings.md should produce chunks"
+    );
 }
 
 #[test]
 fn test_index_empty_directory() {
     let tmp = TempDir::new().unwrap();
-    let stats = init_project(tmp.path(), false, false).expect("init should succeed on empty directory");
+    let stats =
+        init_project(tmp.path(), false, false).expect("init should succeed on empty directory");
 
     assert_eq!(stats.files_added, 0);
     assert_eq!(stats.chunks_indexed, 0);

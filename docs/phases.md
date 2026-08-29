@@ -312,7 +312,7 @@ Build fixture corpus, unit/integration suites, Criterion benchmarks, and CI effi
   - **Deliverable:** Integration test suite executed via `cargo test --test '*'`.
   - **Verification:** `cargo test --test '*'` passes 100%.
 
-- [ ] **TASK-9.4: Criterion Performance Benchmarks (`benches/`)**
+- [x] **TASK-9.4: Criterion Performance Benchmarks (`benches/`)**
   - **Description:** Implement Criterion benchmarks matching Section 13.4:
     - `bench_ingestion.rs`: Indexing throughput (medium < 5s, incremental < 1s).
     - `bench_query.rs`: MCP search latency (< 50ms) and traverse latency (< 10ms).

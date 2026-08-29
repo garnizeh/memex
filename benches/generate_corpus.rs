@@ -4,6 +4,8 @@
 //! containing structured Markdown files with headings (H1-H4), code blocks (Rust, Python, JSON, Bash),
 //! paragraphs, lists, tables, callouts, and inter-document cross-links.
 
+#![allow(dead_code, unused_imports)]
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

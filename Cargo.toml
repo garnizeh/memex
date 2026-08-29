@@ -54,3 +54,13 @@ tiktoken-rs = "0.12.0"
 name = "bench_token_efficiency"
 harness = false
 required-features = []
+
+[[bench]]
+name = "bench_ingestion"
+harness = false
+required-features = []
+
+[[bench]]
+name = "bench_query"
+harness = false
+required-features = []
