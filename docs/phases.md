@@ -243,7 +243,7 @@ Implement stdio JSON-RPC 2.0 transport, tool definitions, request routing, and q
   - **Deliverable:** Tool execution function for `traverse_graph`.
   - **Verification:** Integration test requesting traversal of nested section chunk ID.
 
-- [ ] **TASK-7.5: CLI `memex serve --mcp` Command (`src/cli/serve.rs`)**
+- [x] **TASK-7.5: CLI `memex serve --mcp` Command (`src/cli/serve.rs`)**
   - **Description:** Implement `memex serve --mcp`: (1) resolve project root, (2) open database in read-only mode (`SQLITE_OPEN_READ_ONLY`), (3) initialize embedding engine, (4) start MCP stdio server loop, (5) handle graceful shutdown on stdin EOF.
   - **Deliverable:** CLI handler function for `Commands::Serve`.
   - **Verification:** Integration test sending `initialize` and `tools/call` JSON-RPC lines via stdin pipe and checking stdout output.
