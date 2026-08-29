@@ -73,7 +73,7 @@ Implement the SQLite relational schema, WAL configuration, `sqlite-vec` virtual 
   - **Deliverable:** `schema::initialize_schema(conn: &Connection) -> Result<()>`.
   - **Verification:** Unit test executing schema creation twice sequentially (idempotency check) and inspecting `sqlite_master`.
 
-- [ ] **TASK-2.3: sqlite-vec Extension Loading & Validation**
+- [x] **TASK-2.3: sqlite-vec Extension Loading & Validation**
   - **Description:** Implement dynamic extension loading or bundled initialization for `sqlite-vec`. Provide a self-test function verifying `vec0` virtual table capability.
   - **Deliverable:** Safe wrapper loading extension on connection creation.
   - **Verification:** Unit test inserting and querying a dummy 384-dimensional float vector.

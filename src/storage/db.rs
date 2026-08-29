@@ -27,6 +27,7 @@ impl Database {
 
         let conn = Connection::open_with_flags(path, flags)?;
         Self::apply_pragmas(&conn, false)?;
+        crate::storage::vec::ensure_sqlite_vec(&conn)?;
 
         Ok(Self {
             conn,
@@ -41,6 +42,7 @@ impl Database {
 
         let conn = Connection::open_with_flags(path, flags)?;
         Self::apply_pragmas(&conn, true)?;
+        crate::storage::vec::ensure_sqlite_vec(&conn)?;
 
         Ok(Self {
             conn,
@@ -52,6 +54,7 @@ impl Database {
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         Self::apply_pragmas(&conn, false)?;
+        crate::storage::vec::ensure_sqlite_vec(&conn)?;
 
         Ok(Self {
             conn,
@@ -76,6 +79,16 @@ impl Database {
             )?;
         }
         Ok(())
+    }
+
+    /// Validates `sqlite-vec` vector extension support on this database connection.
+    pub fn validate_vector_support(&self) -> Result<String> {
+        crate::storage::vec::validate_vector_support(&self.conn)
+    }
+
+    /// Retrieves the loaded `sqlite-vec` extension version.
+    pub fn vec_version(&self) -> Result<String> {
+        crate::storage::vec::sqlite_vec_version(&self.conn)
     }
 
     /// Returns a reference to the underlying SQLite connection.
@@ -213,5 +226,17 @@ mod tests {
         let db_path = dir.path().join("does_not_exist.db");
         let res = Database::open_readonly(&db_path);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_database_vector_extension_loaded_and_validated() {
+        let db = Database::open_in_memory().unwrap();
+        let version = db.vec_version().expect("vec_version should succeed on Database");
+        assert!(!version.is_empty());
+
+        let validated_version = db
+            .validate_vector_support()
+            .expect("validate_vector_support should succeed on Database");
+        assert_eq!(version, validated_version);
     }
 }

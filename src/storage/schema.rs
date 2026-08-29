@@ -3,11 +3,8 @@
 //! Provides the relational graph schema (`documents`, `chunks`, `edges`, indices)
 //! and the `sqlite-vec` virtual table (`vec_chunks`) for vector similarity search.
 
-use std::sync::Once;
 use rusqlite::Connection;
-use crate::errors::{MemexError, Result};
-
-static VEC_EXTENSION_INIT: Once = Once::new();
+use crate::errors::Result;
 
 /// SQL schema definition containing all relational tables, indices, and vector virtual tables.
 pub const SCHEMA_SQL: &str = r#"
@@ -58,44 +55,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 );
 "#;
 
-type SqliteVecInit = unsafe extern "C" fn(
-    db: *mut rusqlite::ffi::sqlite3,
-    err_msg: *mut *mut std::os::raw::c_char,
-    api: *const rusqlite::ffi::sqlite3_api_routines,
-) -> std::os::raw::c_int;
-
-/// Ensures the `sqlite-vec` extension is registered globally and loaded for the given connection.
-pub fn ensure_sqlite_vec(conn: &Connection) -> Result<()> {
-    VEC_EXTENSION_INIT.call_once(|| unsafe {
-        let auto_init_fn: Option<SqliteVecInit> = Some(std::mem::transmute::<
-            *const (),
-            SqliteVecInit,
-        >(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        ));
-        let _ = rusqlite::ffi::sqlite3_auto_extension(auto_init_fn);
-    });
-
-    unsafe {
-        let init_fn: SqliteVecInit = std::mem::transmute::<*const (), SqliteVecInit>(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        );
-        let mut err_msg: *mut std::os::raw::c_char = std::ptr::null_mut();
-        let rc = init_fn(conn.handle(), &mut err_msg, std::ptr::null());
-        if rc != rusqlite::ffi::SQLITE_OK {
-            let msg = if !err_msg.is_null() {
-                let s = std::ffi::CStr::from_ptr(err_msg).to_string_lossy().into_owned();
-                rusqlite::ffi::sqlite3_free(err_msg as *mut std::ffi::c_void);
-                s
-            } else {
-                "Failed to initialize sqlite-vec extension".to_string()
-            };
-            return Err(MemexError::VecExtension(msg));
-        }
-    }
-
-    Ok(())
-}
+pub use crate::storage::vec::ensure_sqlite_vec;
 
 
 /// Initializes the database schema on the provided SQLite connection.
