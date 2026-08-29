@@ -39,6 +39,18 @@ pub struct SearchResult {
     pub score: f32,
 }
 
+/// A localized subgraph around a focal chunk, including ancestor heading hierarchy
+/// and connected outgoing/incoming graph edges.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Subgraph {
+    /// The central chunk around which the graph was traversed.
+    pub root: Option<Chunk>,
+    /// All chunks (nodes) included in the traversed subgraph, deduplicated.
+    pub nodes: Vec<Chunk>,
+    /// All directed edges connecting nodes in the traversed subgraph.
+    pub edges: Vec<Edge>,
+}
+
 impl SearchResult {
     /// Computes a normalized similarity score in [0.0, 1.0] from an L2 distance
     /// assuming L2-normalized unit vectors where distance is in [0, 2].
@@ -179,6 +191,204 @@ impl<'a> StorageReader<'a> {
         }
 
         Ok(results)
+    }
+
+    /// Traverses the documentation knowledge graph around `chunk_id` up to `depth` levels.
+    ///
+    /// The traversal performs:
+    /// 1. **Upward traversal**: Walks the `parent_chunk_id` hierarchy up to `depth` levels
+    ///    using a recursive CTE to collect ancestor heading chunks.
+    /// 2. **Downward and sideways traversal**: Walks outgoing and incoming edges connected to
+    ///    the focal chunk and discovered nodes.
+    ///
+    /// Returns a [`Subgraph`] containing the root chunk, all discovered deduplicated node chunks,
+    /// and all interconnecting edges.
+    pub fn traverse_subgraph(&self, chunk_id: &str, depth: u32) -> Result<Subgraph> {
+        let root_chunk = match self.get_chunk(chunk_id)? {
+            Some(c) => c,
+            None => {
+                return Ok(Subgraph {
+                    root: None,
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                })
+            }
+        };
+
+        let mut node_map = std::collections::HashMap::<String, Chunk>::new();
+        node_map.insert(root_chunk.id.clone(), root_chunk.clone());
+
+        if depth > 0 {
+            // 1. Upward recursive CTE traversal along parent_chunk_id
+            let mut stmt_ancestors = self.conn.prepare_cached(
+                "WITH RECURSIVE ancestors(id, parent_id, depth) AS (
+                    SELECT id, parent_chunk_id, 0 FROM chunks WHERE id = ?1
+                    UNION ALL
+                    SELECT c.id, c.parent_chunk_id, a.depth + 1
+                    FROM chunks c
+                    JOIN ancestors a ON c.id = a.parent_id
+                    WHERE a.depth < ?2 AND a.parent_id IS NOT NULL
+                )
+                SELECT
+                    c.id, c.doc_id, c.parent_chunk_id, c.chunk_type,
+                    c.heading_path, c.content, c.contextual_content,
+                    c.line_start, c.line_end
+                FROM chunks c
+                JOIN ancestors a ON c.id = a.id
+                WHERE c.id != ?1;",
+            )?;
+
+            let ancestor_rows = stmt_ancestors
+                .query_map(params![chunk_id, depth as i64], Self::row_to_chunk_raw)?;
+            for raw in ancestor_rows {
+                let chunk = Self::parse_chunk_tuple(raw?)?;
+                node_map.insert(chunk.id.clone(), chunk);
+            }
+
+            // 2. Downward / sideways traversal along edges
+            // Collect outgoing edges and target chunks
+            let mut current_frontier: std::collections::HashSet<String> =
+                node_map.keys().cloned().collect();
+            let mut edge_map =
+                std::collections::HashSet::<(String, String, String, Option<String>)>::new();
+
+            // Perform breadth traversal for depth steps
+            for _ in 0..depth {
+                if current_frontier.is_empty() {
+                    break;
+                }
+
+                let mut next_frontier = std::collections::HashSet::new();
+
+                for node_id in &current_frontier {
+                    // Outgoing edges
+                    let mut stmt_out = self.conn.prepare_cached(
+                        "SELECT
+                            e.source_chunk_id, e.target_chunk_id, e.edge_type, e.link_text,
+                            c.id, c.doc_id, c.parent_chunk_id, c.chunk_type,
+                            c.heading_path, c.content, c.contextual_content,
+                            c.line_start, c.line_end
+                        FROM edges e
+                        JOIN chunks c ON c.id = e.target_chunk_id
+                        WHERE e.source_chunk_id = ?1;",
+                    )?;
+
+                    let out_rows = stmt_out.query_map(params![node_id], |row| {
+                        let edge_raw: RawEdgeTuple =
+                            (row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
+                        let chunk_raw: RawChunkTuple = (
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
+                            row.get(10)?,
+                            row.get(11)?,
+                            row.get(12)?,
+                        );
+                        Ok((edge_raw, chunk_raw))
+                    })?;
+
+                    for item in out_rows {
+                        let (edge_raw, chunk_raw) = item?;
+                        edge_map.insert(edge_raw);
+                        let target_chunk = Self::parse_chunk_tuple(chunk_raw)?;
+                        if !node_map.contains_key(&target_chunk.id) {
+                            next_frontier.insert(target_chunk.id.clone());
+                            node_map.insert(target_chunk.id.clone(), target_chunk);
+                        }
+                    }
+
+                    // Also check for direct children via parent_chunk_id
+                    let mut stmt_children = self.conn.prepare_cached(
+                        "SELECT
+                            id, doc_id, parent_chunk_id, chunk_type,
+                            heading_path, content, contextual_content,
+                            line_start, line_end
+                        FROM chunks
+                        WHERE parent_chunk_id = ?1;",
+                    )?;
+
+                    let child_rows =
+                        stmt_children.query_map(params![node_id], Self::row_to_chunk_raw)?;
+                    for raw in child_rows {
+                        let child_chunk = Self::parse_chunk_tuple(raw?)?;
+                        if !node_map.contains_key(&child_chunk.id) {
+                            next_frontier.insert(child_chunk.id.clone());
+                            node_map.insert(child_chunk.id.clone(), child_chunk);
+                        }
+                    }
+                }
+
+                current_frontier = next_frontier;
+            }
+
+            // Retrieve all interconnecting edges between all discovered nodes
+            let mut collected_edges = Vec::new();
+            for edge_raw in edge_map {
+                collected_edges.push(Self::parse_edge_tuple(edge_raw)?);
+            }
+
+            // Ensure any structural hierarchy edges between discovered nodes are included
+            for node in node_map.values() {
+                if let Some(ref parent_id) = node.parent_chunk_id {
+                    if node_map.contains_key(parent_id) {
+                        let has_edge = collected_edges.iter().any(|e| {
+                            e.source_chunk_id == *parent_id
+                                && e.target_chunk_id == node.id
+                                && e.edge_type == crate::models::EdgeType::Hierarchy
+                        });
+                        if !has_edge {
+                            // Query if this edge is in edges table
+                            let mut stmt_chk = self.conn.prepare_cached(
+                                "SELECT source_chunk_id, target_chunk_id, edge_type, link_text
+                                 FROM edges
+                                 WHERE source_chunk_id = ?1 AND target_chunk_id = ?2 AND edge_type = 'hierarchy';",
+                            )?;
+                            let mut edge_rows = stmt_chk.query(params![parent_id, node.id])?;
+                            if let Some(row) = edge_rows.next()? {
+                                collected_edges.push(Self::parse_edge_tuple((
+                                    row.get(0)?,
+                                    row.get(1)?,
+                                    row.get(2)?,
+                                    row.get(3)?,
+                                ))?);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sort nodes deterministically (document start line / ID)
+            let mut nodes: Vec<Chunk> = node_map.into_values().collect();
+            nodes.sort_by(|a, b| {
+                a.doc_id
+                    .cmp(&b.doc_id)
+                    .then_with(|| a.line_start.cmp(&b.line_start))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+
+            // Sort edges deterministically
+            collected_edges.sort_by(|a, b| {
+                a.source_chunk_id
+                    .cmp(&b.source_chunk_id)
+                    .then_with(|| a.target_chunk_id.cmp(&b.target_chunk_id))
+            });
+
+            return Ok(Subgraph {
+                root: Some(root_chunk),
+                nodes,
+                edges: collected_edges,
+            });
+        }
+
+        // depth == 0 returns only the root node
+        Ok(Subgraph {
+            root: Some(root_chunk.clone()),
+            nodes: vec![root_chunk],
+            edges: Vec::new(),
+        })
     }
 
     /// Retrieves a [`Document`] by its unique ID.
@@ -638,5 +848,209 @@ mod tests {
             edges_target[0].link_text,
             Some("See API Reference".to_string())
         );
+    }
+
+    #[test]
+    fn test_traverse_subgraph_3_level_hierarchy_upward_and_downward() {
+        let mut db = Database::open_in_memory().unwrap();
+        initialize_schema(db.conn()).unwrap();
+
+        let doc = Document {
+            id: "doc-arch".to_string(),
+            file_path: "docs/arch.md".to_string(),
+            title: Some("Architecture".to_string()),
+            content_hash: "hash_arch".to_string(),
+            indexed_at: 1700000000,
+        };
+
+        // 3-level hierarchy: H1 (root) -> H2 (sub) -> Paragraph (leaf)
+        let chunk_h1 = Chunk {
+            id: "chunk-h1".to_string(),
+            doc_id: "doc-arch".to_string(),
+            parent_chunk_id: None,
+            chunk_type: ChunkType::Heading { level: 1 },
+            heading_path: vec!["Architecture".to_string()],
+            content: "# Architecture".to_string(),
+            contextual_content: "# Architecture".to_string(),
+            line_start: 1,
+            line_end: 1,
+        };
+
+        let chunk_h2 = Chunk {
+            id: "chunk-h2".to_string(),
+            doc_id: "doc-arch".to_string(),
+            parent_chunk_id: Some("chunk-h1".to_string()),
+            chunk_type: ChunkType::Heading { level: 2 },
+            heading_path: vec!["Architecture".to_string(), "Storage Engine".to_string()],
+            content: "## Storage Engine".to_string(),
+            contextual_content: "[Architecture] ## Storage Engine".to_string(),
+            line_start: 10,
+            line_end: 10,
+        };
+
+        let chunk_p = Chunk {
+            id: "chunk-p".to_string(),
+            doc_id: "doc-arch".to_string(),
+            parent_chunk_id: Some("chunk-h2".to_string()),
+            chunk_type: ChunkType::Paragraph,
+            heading_path: vec![
+                "Architecture".to_string(),
+                "Storage Engine".to_string(),
+                "Overview".to_string(),
+            ],
+            content: "The storage engine uses SQLite with WAL mode.".to_string(),
+            contextual_content:
+                "[Architecture > Storage Engine > Overview] The storage engine uses SQLite with WAL mode."
+                    .to_string(),
+            line_start: 12,
+            line_end: 15,
+        };
+
+        let chunk_sibling = Chunk {
+            id: "chunk-sibling".to_string(),
+            doc_id: "doc-arch".to_string(),
+            parent_chunk_id: Some("chunk-h2".to_string()),
+            chunk_type: ChunkType::CodeBlock {
+                language: Some("sql".to_string()),
+            },
+            heading_path: vec!["Architecture".to_string(), "Storage Engine".to_string()],
+            content: "CREATE TABLE test;".to_string(),
+            contextual_content: "[Architecture > Storage Engine] CREATE TABLE test;".to_string(),
+            line_start: 16,
+            line_end: 20,
+        };
+
+        let edges = vec![
+            Edge {
+                source_chunk_id: "chunk-h1".to_string(),
+                target_chunk_id: "chunk-h2".to_string(),
+                edge_type: EdgeType::Hierarchy,
+                link_text: None,
+            },
+            Edge {
+                source_chunk_id: "chunk-h2".to_string(),
+                target_chunk_id: "chunk-p".to_string(),
+                edge_type: EdgeType::Hierarchy,
+                link_text: None,
+            },
+            Edge {
+                source_chunk_id: "chunk-h2".to_string(),
+                target_chunk_id: "chunk-sibling".to_string(),
+                edge_type: EdgeType::Hierarchy,
+                link_text: None,
+            },
+        ];
+
+        let mut writer = db.writer();
+        writer.insert_document(&doc).unwrap();
+        writer
+            .insert_chunks_batch(&[
+                chunk_h1.clone(),
+                chunk_h2.clone(),
+                chunk_p.clone(),
+                chunk_sibling.clone(),
+            ])
+            .unwrap();
+        writer.insert_edges_batch(&edges).unwrap();
+
+        let reader = db.reader();
+
+        // 1. Traverse upward from Paragraph (chunk-p) with depth = 2 (should find chunk-p, chunk-h2, chunk-h1)
+        let subgraph_up = reader
+            .traverse_subgraph("chunk-p", 2)
+            .expect("Traverse subgraph should succeed");
+
+        assert_eq!(subgraph_up.root.as_ref().unwrap().id, "chunk-p");
+        let node_ids: Vec<String> = subgraph_up.nodes.iter().map(|n| n.id.clone()).collect();
+        assert!(node_ids.contains(&"chunk-p".to_string()));
+        assert!(node_ids.contains(&"chunk-h2".to_string()));
+        assert!(node_ids.contains(&"chunk-h1".to_string()));
+
+        // Check headings are present
+        let heading_nodes: Vec<_> = subgraph_up
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.chunk_type, ChunkType::Heading { .. }))
+            .collect();
+        assert_eq!(heading_nodes.len(), 2);
+
+        // 2. Traverse from H1 with depth = 1 (should find H1, H2, and edges)
+        let subgraph_h1_d1 = reader.traverse_subgraph("chunk-h1", 1).unwrap();
+        let h1_d1_node_ids: Vec<String> =
+            subgraph_h1_d1.nodes.iter().map(|n| n.id.clone()).collect();
+        assert!(h1_d1_node_ids.contains(&"chunk-h1".to_string()));
+        assert!(h1_d1_node_ids.contains(&"chunk-h2".to_string()));
+
+        // 3. Traverse with depth = 0 (returns only root)
+        let subgraph_d0 = reader.traverse_subgraph("chunk-p", 0).unwrap();
+        assert_eq!(subgraph_d0.nodes.len(), 1);
+        assert_eq!(subgraph_d0.nodes[0].id, "chunk-p");
+        assert!(subgraph_d0.edges.is_empty());
+
+        // 4. Traverse non-existent chunk returns empty subgraph
+        let subgraph_none = reader.traverse_subgraph("nonexistent", 2).unwrap();
+        assert!(subgraph_none.root.is_none());
+        assert!(subgraph_none.nodes.is_empty());
+        assert!(subgraph_none.edges.is_empty());
+    }
+
+    #[test]
+    fn test_traverse_subgraph_with_explicit_links() {
+        let mut db = Database::open_in_memory().unwrap();
+        initialize_schema(db.conn()).unwrap();
+
+        let doc = Document {
+            id: "doc-links".to_string(),
+            file_path: "docs/links.md".to_string(),
+            title: Some("Links".to_string()),
+            content_hash: "hash_links".to_string(),
+            indexed_at: 1700000000,
+        };
+
+        let chunk_a = Chunk {
+            id: "chunk-a".to_string(),
+            doc_id: "doc-links".to_string(),
+            parent_chunk_id: None,
+            chunk_type: ChunkType::Paragraph,
+            heading_path: vec!["Section A".to_string()],
+            content: "Paragraph A".to_string(),
+            contextual_content: "[Section A] Paragraph A".to_string(),
+            line_start: 1,
+            line_end: 5,
+        };
+
+        let chunk_b = Chunk {
+            id: "chunk-b".to_string(),
+            doc_id: "doc-links".to_string(),
+            parent_chunk_id: None,
+            chunk_type: ChunkType::Paragraph,
+            heading_path: vec!["Section B".to_string()],
+            content: "Paragraph B".to_string(),
+            contextual_content: "[Section B] Paragraph B".to_string(),
+            line_start: 6,
+            line_end: 10,
+        };
+
+        let edge_ab = Edge {
+            source_chunk_id: "chunk-a".to_string(),
+            target_chunk_id: "chunk-b".to_string(),
+            edge_type: EdgeType::ExplicitLink,
+            link_text: Some("Go to B".to_string()),
+        };
+
+        let mut writer = db.writer();
+        writer.insert_document(&doc).unwrap();
+        writer
+            .insert_chunks_batch(&[chunk_a.clone(), chunk_b.clone()])
+            .unwrap();
+        writer.insert_edges_batch(&[edge_ab]).unwrap();
+
+        let reader = db.reader();
+        let subgraph = reader.traverse_subgraph("chunk-a", 1).unwrap();
+
+        assert_eq!(subgraph.nodes.len(), 2);
+        assert_eq!(subgraph.edges.len(), 1);
+        assert_eq!(subgraph.edges[0].edge_type, EdgeType::ExplicitLink);
+        assert_eq!(subgraph.edges[0].link_text, Some("Go to B".to_string()));
     }
 }

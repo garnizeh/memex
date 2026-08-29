@@ -88,7 +88,7 @@ Implement the SQLite relational schema, WAL configuration, `sqlite-vec` virtual 
   - **Deliverable:** `StorageReader::search_knn(embedding: &[f32], limit: usize) -> Result<Vec<SearchResult>>`.
   - **Verification:** Test inserting 10 synthetic vectors and verifying KNN search returns nearest neighbor IDs in sorted distance order.
 
-- [ ] **TASK-2.6: Graph Traversal Engine (`src/storage/reader.rs`)**
+- [x] **TASK-2.6: Graph Traversal Engine (`src/storage/reader.rs`)**
   - **Description:** Implement: (1) Upward recursive CTE walking `parent_chunk_id` up to `depth`, (2) Downward/sideways queries walking `edges` table.
   - **Deliverable:** `StorageReader::traverse_subgraph(chunk_id: &str, depth: u32) -> Result<Subgraph>`.
   - **Verification:** Test building a 3-level hierarchy (H1 -> H2 -> Paragraph) and traversing from paragraph to retrieve full heading lineage.
