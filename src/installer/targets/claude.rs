@@ -169,7 +169,6 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         .expect("UserPromptSubmit must be an array");
 
     let memex_command_entry = serde_json::json!({
-        "matcher": "",
         "hooks": [
             {
                 "type": "command",
@@ -191,9 +190,16 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         }
     });
 
-    // Remove any previous prompt-only entries created for memex
+    // Remove any previous entries with empty matcher or prompt-only for memex
     user_prompt_arr.retain(|entry| {
         if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
+            let is_old_memex_with_matcher = entry.get("matcher").is_some()
+                && inner_hooks.iter().any(|h| {
+                    h.get("command")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.contains("memex"))
+                        .unwrap_or(false)
+                });
             let is_memex_prompt = inner_hooks.iter().any(|h| {
                 h.get("type").and_then(|t| t.as_str()) == Some("prompt")
                     && h.get("prompt")
@@ -201,7 +207,7 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
                         .map(|s| s.contains("Memex") || s.contains(".memex/"))
                         .unwrap_or(false)
             });
-            return !is_memex_prompt;
+            return !is_old_memex_with_matcher && !is_memex_prompt;
         }
         true
     });
