@@ -238,13 +238,13 @@ pub fn handle_search_documentation_json(
             Err(e) => {
                 return CallToolResult::error(format!(
                     "Invalid search_documentation arguments: {e}"
-                ))
+                ));
             }
         },
         None => {
             return CallToolResult::error(
                 "Missing required 'query' argument for search_documentation",
-            )
+            );
         }
     };
 
@@ -295,11 +295,13 @@ pub fn handle_traverse_graph_json(
         Some(val) => match serde_json::from_value(val) {
             Ok(p) => p,
             Err(e) => {
-                return CallToolResult::error(format!("Invalid traverse_graph arguments: {e}"))
+                return CallToolResult::error(format!("Invalid traverse_graph arguments: {e}"));
             }
         },
         None => {
-            return CallToolResult::error("Missing required 'chunk_id' argument for traverse_graph")
+            return CallToolResult::error(
+                "Missing required 'chunk_id' argument for traverse_graph",
+            );
         }
     };
 

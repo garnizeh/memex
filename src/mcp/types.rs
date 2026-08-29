@@ -514,11 +514,13 @@ mod tests {
             .iter()
             .find(|t| t.name == "search_documentation")
             .expect("search_documentation tool must exist");
-        assert!(search_tool
-            .description
-            .as_ref()
-            .unwrap()
-            .contains("semantic similarity"));
+        assert!(
+            search_tool
+                .description
+                .as_ref()
+                .unwrap()
+                .contains("semantic similarity")
+        );
 
         let schema = &search_tool.input_schema;
         assert_eq!(schema["type"], "object");
@@ -533,11 +535,13 @@ mod tests {
             .iter()
             .find(|t| t.name == "traverse_graph")
             .expect("traverse_graph tool must exist");
-        assert!(traverse_tool
-            .description
-            .as_ref()
-            .unwrap()
-            .contains("surrounding documentation context"));
+        assert!(
+            traverse_tool
+                .description
+                .as_ref()
+                .unwrap()
+                .contains("surrounding documentation context")
+        );
 
         let schema2 = &traverse_tool.input_schema;
         assert_eq!(schema2["type"], "object");

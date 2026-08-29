@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::errors::Result;
 use crate::installer::config_writer::{atomic_write_json, read_json_value};
 use crate::installer::targets::{
-    inject_mcp_server_config, is_memex_in_mcp_config, AgentTarget, DetectionResult, InstallOptions,
+    AgentTarget, DetectionResult, InstallOptions, inject_mcp_server_config, is_memex_in_mcp_config,
 };
 
 /// Agent target for Claude Code.

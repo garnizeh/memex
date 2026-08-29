@@ -250,10 +250,10 @@ pub fn make_mcp_server_config(command: &str, args: &[String]) -> Value {
 
 /// Helper function to check if `mcpServers.memex` exists in a JSON configuration file.
 pub fn is_memex_in_mcp_config(config_path: &Path) -> bool {
-    if let Ok(Some(value)) = read_json_value(config_path) {
-        if let Some(mcp_servers) = value.get("mcpServers").and_then(|v| v.as_object()) {
-            return mcp_servers.contains_key("memex");
-        }
+    if let Ok(Some(value)) = read_json_value(config_path)
+        && let Some(mcp_servers) = value.get("mcpServers").and_then(|v| v.as_object())
+    {
+        return mcp_servers.contains_key("memex");
     }
     false
 }

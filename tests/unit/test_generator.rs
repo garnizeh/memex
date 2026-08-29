@@ -2,7 +2,7 @@
 pub mod generate_corpus;
 
 use generate_corpus::{
-    generate_corpus, generate_large_corpus, generate_medium_corpus, CorpusConfig,
+    CorpusConfig, generate_corpus, generate_large_corpus, generate_medium_corpus,
 };
 use memex::config::MemexConfig;
 use memex::discovery::FileDiscovery;

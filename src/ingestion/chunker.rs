@@ -638,20 +638,20 @@ impl ContextualChunker {
         while let Some(start_bracket) = clean.find('[') {
             if let Some(end_bracket) = clean[start_bracket..].find(']') {
                 let end_bracket_idx = start_bracket + end_bracket;
-                if let Some(start_paren) = clean[end_bracket_idx..].find('(') {
-                    if start_paren == 1 {
-                        let start_paren_idx = end_bracket_idx + start_paren;
-                        if let Some(end_paren) = clean[start_paren_idx..].find(')') {
-                            let end_paren_idx = start_paren_idx + end_paren;
-                            let link_text = clean[start_bracket + 1..end_bracket_idx].to_string();
-                            clean = format!(
-                                "{}{}{}",
-                                &clean[..start_bracket],
-                                link_text,
-                                &clean[end_paren_idx + 1..]
-                            );
-                            continue;
-                        }
+                if let Some(start_paren) = clean[end_bracket_idx..].find('(')
+                    && start_paren == 1
+                {
+                    let start_paren_idx = end_bracket_idx + start_paren;
+                    if let Some(end_paren) = clean[start_paren_idx..].find(')') {
+                        let end_paren_idx = start_paren_idx + end_paren;
+                        let link_text = clean[start_bracket + 1..end_bracket_idx].to_string();
+                        clean = format!(
+                            "{}{}{}",
+                            &clean[..start_bracket],
+                            link_text,
+                            &clean[end_paren_idx + 1..]
+                        );
+                        continue;
                     }
                 }
             }
@@ -898,11 +898,10 @@ impl ContextualChunker {
                                         if let Some(p_fname) = std::path::Path::new(p)
                                             .file_name()
                                             .and_then(|f| f.to_str())
+                                            && p_fname == t_fname
                                         {
-                                            if p_fname == t_fname {
-                                                found_id = Some(d_id.clone());
-                                                break;
-                                            }
+                                            found_id = Some(d_id.clone());
+                                            break;
                                         }
                                     }
                                 }

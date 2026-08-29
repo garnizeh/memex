@@ -192,29 +192,29 @@ impl MarkdownParser {
                     }
                 }
                 Event::End(TagEnd::Paragraph) => {
-                    if list_depth == 0 {
-                        if let BlockState::Paragraph { text, byte_start } = current_state {
-                            let byte_end = range.end;
-                            let line_start = line_index.line_number(byte_start);
-                            let line_end =
-                                line_index.line_number(byte_end.saturating_sub(1).max(byte_start));
-                            let trimmed = text.trim();
-                            if !trimmed.is_empty() {
-                                flat_nodes.push((
-                                    AstNode {
-                                        kind: AstNodeKind::Paragraph,
-                                        content: trimmed.to_string(),
-                                        line_start,
-                                        line_end,
-                                        byte_start,
-                                        byte_end,
-                                        children: Vec::new(),
-                                    },
-                                    None,
-                                ));
-                            }
-                            current_state = BlockState::None;
+                    if list_depth == 0
+                        && let BlockState::Paragraph { text, byte_start } = current_state
+                    {
+                        let byte_end = range.end;
+                        let line_start = line_index.line_number(byte_start);
+                        let line_end =
+                            line_index.line_number(byte_end.saturating_sub(1).max(byte_start));
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            flat_nodes.push((
+                                AstNode {
+                                    kind: AstNodeKind::Paragraph,
+                                    content: trimmed.to_string(),
+                                    line_start,
+                                    line_end,
+                                    byte_start,
+                                    byte_end,
+                                    children: Vec::new(),
+                                },
+                                None,
+                            ));
                         }
+                        current_state = BlockState::None;
                     }
                 }
                 Event::Start(Tag::CodeBlock(kind)) => {
@@ -292,29 +292,29 @@ impl MarkdownParser {
                 }
                 Event::End(TagEnd::List(_)) => {
                     list_depth = list_depth.saturating_sub(1);
-                    if list_depth == 0 {
-                        if let BlockState::List { text, byte_start } = current_state {
-                            let byte_end = range.end;
-                            let line_start = line_index.line_number(byte_start);
-                            let line_end =
-                                line_index.line_number(byte_end.saturating_sub(1).max(byte_start));
-                            let trimmed = text.trim();
-                            if !trimmed.is_empty() {
-                                flat_nodes.push((
-                                    AstNode {
-                                        kind: AstNodeKind::List,
-                                        content: trimmed.to_string(),
-                                        line_start,
-                                        line_end,
-                                        byte_start,
-                                        byte_end,
-                                        children: Vec::new(),
-                                    },
-                                    None,
-                                ));
-                            }
-                            current_state = BlockState::None;
+                    if list_depth == 0
+                        && let BlockState::List { text, byte_start } = current_state
+                    {
+                        let byte_end = range.end;
+                        let line_start = line_index.line_number(byte_start);
+                        let line_end =
+                            line_index.line_number(byte_end.saturating_sub(1).max(byte_start));
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            flat_nodes.push((
+                                AstNode {
+                                    kind: AstNodeKind::List,
+                                    content: trimmed.to_string(),
+                                    line_start,
+                                    line_end,
+                                    byte_start,
+                                    byte_end,
+                                    children: Vec::new(),
+                                },
+                                None,
+                            ));
                         }
+                        current_state = BlockState::None;
                     }
                 }
                 Event::Start(Tag::Item) => {
@@ -326,10 +326,10 @@ impl MarkdownParser {
                     }
                 }
                 Event::End(TagEnd::Item) => {
-                    if let BlockState::List { ref mut text, .. } = current_state {
-                        if !text.ends_with('\n') {
-                            text.push('\n');
-                        }
+                    if let BlockState::List { ref mut text, .. } = current_state
+                        && !text.ends_with('\n')
+                    {
+                        text.push('\n');
                     }
                 }
                 Event::Start(Tag::Link { ref dest_url, .. }) => {
@@ -429,14 +429,14 @@ impl MarkdownParser {
         let mut first_any_heading = None;
 
         for (node, level_opt) in &flat_nodes {
-            if let Some(level) = level_opt {
-                if let AstNodeKind::Heading { title, .. } = &node.kind {
-                    if first_any_heading.is_none() {
-                        first_any_heading = Some(title.clone());
-                    }
-                    if *level == 1 && first_h1.is_none() {
-                        first_h1 = Some(title.clone());
-                    }
+            if let Some(level) = level_opt
+                && let AstNodeKind::Heading { title, .. } = &node.kind
+            {
+                if first_any_heading.is_none() {
+                    first_any_heading = Some(title.clone());
+                }
+                if *level == 1 && first_h1.is_none() {
+                    first_h1 = Some(title.clone());
                 }
             }
         }
@@ -705,9 +705,11 @@ Serves documentation to LLMs.
                 language: Some("rust".to_string())
             }
         );
-        assert!(h2_storage.children[1]
-            .content
-            .contains("fn init_db() -> Result<()>"));
+        assert!(
+            h2_storage.children[1]
+                .content
+                .contains("fn init_db() -> Result<()>")
+        );
 
         // H3 Vector Search
         let h3_vec = &h2_storage.children[2];

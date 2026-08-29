@@ -6,7 +6,7 @@
 use crate::errors::{MemexError, Result};
 use crate::models::{Chunk, ChunkType, Document, Edge, EdgeType};
 use crate::storage::vec::vector_to_bytes;
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{Connection, Transaction, params};
 
 /// Converts a [`ChunkType`] into its database string representation.
 pub fn chunk_type_to_str(chunk_type: &ChunkType) -> String {

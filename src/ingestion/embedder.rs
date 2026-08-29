@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 use ort::inputs;
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 use tokenizers::Tokenizer;
 
@@ -643,20 +643,15 @@ impl ModelManager {
                         description,
                     )?;
                 }
-            } else if let Ok(metadata) = fs::metadata(target_path) {
-                if metadata.len() == 0 {
-                    warn!(
-                        path = %target_path.display(),
-                        "Existing {description} asset is empty (0 bytes), re-downloading..."
-                    );
-                    let _ = fs::remove_file(target_path);
-                    self.download_asset_file(
-                        target_path,
-                        download_url,
-                        expected_hash,
-                        description,
-                    )?;
-                }
+            } else if let Ok(metadata) = fs::metadata(target_path)
+                && metadata.len() == 0
+            {
+                warn!(
+                    path = %target_path.display(),
+                    "Existing {description} asset is empty (0 bytes), re-downloading..."
+                );
+                let _ = fs::remove_file(target_path);
+                self.download_asset_file(target_path, download_url, expected_hash, description)?;
             }
             return Ok(());
         }
@@ -994,8 +989,8 @@ mod tests {
 
     #[test]
     fn test_tokenizer_wrapper_batch_padding_and_shapes() {
-        use tokenizers::models::wordpiece::WordPiece;
         use tokenizers::Tokenizer;
+        use tokenizers::models::wordpiece::WordPiece;
 
         let vocab = [
             ("[PAD]".to_string(), 0),
@@ -1045,8 +1040,8 @@ mod tests {
 
     #[test]
     fn test_tokenizer_wrapper_max_seq_len_truncation() {
-        use tokenizers::models::wordpiece::WordPiece;
         use tokenizers::Tokenizer;
+        use tokenizers::models::wordpiece::WordPiece;
 
         let vocab = [
             ("[PAD]".to_string(), 0),
@@ -1080,8 +1075,8 @@ mod tests {
 
     #[test]
     fn test_tokenizer_wrapper_single_encode() {
-        use tokenizers::models::wordpiece::WordPiece;
         use tokenizers::Tokenizer;
+        use tokenizers::models::wordpiece::WordPiece;
 
         let vocab = [
             ("[PAD]".to_string(), 0),

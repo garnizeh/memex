@@ -7,7 +7,7 @@ use crate::errors::Result;
 use crate::models::{Chunk, Document, Edge};
 use crate::storage::vec::vector_to_bytes;
 use crate::storage::writer::{str_to_chunk_type, str_to_edge_type};
-use rusqlite::{params, Connection, Row};
+use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 
 type RawChunkTuple = (
@@ -211,7 +211,7 @@ impl<'a> StorageReader<'a> {
                     root: None,
                     nodes: Vec::new(),
                     edges: Vec::new(),
-                })
+                });
             }
         };
 
@@ -332,29 +332,29 @@ impl<'a> StorageReader<'a> {
 
             // Ensure any structural hierarchy edges between discovered nodes are included
             for node in node_map.values() {
-                if let Some(ref parent_id) = node.parent_chunk_id {
-                    if node_map.contains_key(parent_id) {
-                        let has_edge = collected_edges.iter().any(|e| {
-                            e.source_chunk_id == *parent_id
-                                && e.target_chunk_id == node.id
-                                && e.edge_type == crate::models::EdgeType::Hierarchy
-                        });
-                        if !has_edge {
-                            // Query if this edge is in edges table
-                            let mut stmt_chk = self.conn.prepare_cached(
+                if let Some(ref parent_id) = node.parent_chunk_id
+                    && node_map.contains_key(parent_id)
+                {
+                    let has_edge = collected_edges.iter().any(|e| {
+                        e.source_chunk_id == *parent_id
+                            && e.target_chunk_id == node.id
+                            && e.edge_type == crate::models::EdgeType::Hierarchy
+                    });
+                    if !has_edge {
+                        // Query if this edge is in edges table
+                        let mut stmt_chk = self.conn.prepare_cached(
                                 "SELECT source_chunk_id, target_chunk_id, edge_type, link_text
                                  FROM edges
                                  WHERE source_chunk_id = ?1 AND target_chunk_id = ?2 AND edge_type = 'hierarchy';",
                             )?;
-                            let mut edge_rows = stmt_chk.query(params![parent_id, node.id])?;
-                            if let Some(row) = edge_rows.next()? {
-                                collected_edges.push(Self::parse_edge_tuple((
-                                    row.get(0)?,
-                                    row.get(1)?,
-                                    row.get(2)?,
-                                    row.get(3)?,
-                                ))?);
-                            }
+                        let mut edge_rows = stmt_chk.query(params![parent_id, node.id])?;
+                        if let Some(row) = edge_rows.next()? {
+                            collected_edges.push(Self::parse_edge_tuple((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                            ))?);
                         }
                     }
                 }

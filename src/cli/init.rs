@@ -1,5 +1,5 @@
 use crate::config::MemexConfig;
-use crate::discovery::{unsafe_index_root_reason, FileDiscovery};
+use crate::discovery::{FileDiscovery, unsafe_index_root_reason};
 use crate::errors::{MemexError, Result};
 use crate::ingestion::embedder::{EmbeddingEngine, ModelManager};
 use crate::storage::db::Database;
@@ -66,13 +66,11 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
     let resolved_path = resolve_project_path(path)?;
 
     // 2. Safety check
-    if !force {
-        if let Some(reason) = unsafe_index_root_reason(&resolved_path) {
-            return Err(MemexError::UnsafeRoot {
-                path: resolved_path.display().to_string(),
-                reason,
-            });
-        }
+    if !force && let Some(reason) = unsafe_index_root_reason(&resolved_path) {
+        return Err(MemexError::UnsafeRoot {
+            path: resolved_path.display().to_string(),
+            reason,
+        });
     }
 
     // 3. Already initialized check
