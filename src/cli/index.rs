@@ -1560,17 +1560,20 @@ mod tests {
         let f1 = create_test_file(&project_dir, "doc1.md", b"# Document 1\n\nInitial version.");
         let _f2 = create_test_file(&project_dir, "doc2.md", b"# Document 2\n\nDoc 2 version.");
 
-        crate::cli::init::init_project_with_embedder(
-            &project_dir,
-            false,
-            false,
-            &dummy_embedder(),
-        )
-        .unwrap();
+        crate::cli::init::init_project_with_embedder(&project_dir, false, false, &dummy_embedder())
+            .unwrap();
 
         // 1. Modify doc1.md and add doc3.md
-        create_test_file(&project_dir, "doc1.md", b"# Document 1\n\nUpdated version with more detail.");
-        let f3 = create_test_file(&project_dir, "doc3.md", b"# Document 3\n\nBrand new document.");
+        create_test_file(
+            &project_dir,
+            "doc1.md",
+            b"# Document 1\n\nUpdated version with more detail.",
+        );
+        let f3 = create_test_file(
+            &project_dir,
+            "doc3.md",
+            b"# Document 3\n\nBrand new document.",
+        );
 
         let stats_1 =
             run_index_with_embedder(&project_dir, false, false, &dummy_embedder()).unwrap();
@@ -1607,7 +1610,8 @@ mod tests {
         let uninit_dir = temp_dir.path().join("uninitialized");
         fs::create_dir_all(&uninit_dir).unwrap();
 
-        let err = run_index_with_embedder(&uninit_dir, false, false, &dummy_embedder()).unwrap_err();
+        let err =
+            run_index_with_embedder(&uninit_dir, false, false, &dummy_embedder()).unwrap_err();
         assert!(matches!(err, MemexError::NotInitialized { .. }));
     }
 
@@ -1619,13 +1623,8 @@ mod tests {
 
         create_test_file(&project_dir, "doc.md", b"# Doc\n\nContent.");
 
-        crate::cli::init::init_project_with_embedder(
-            &project_dir,
-            false,
-            false,
-            &dummy_embedder(),
-        )
-        .unwrap();
+        crate::cli::init::init_project_with_embedder(&project_dir, false, false, &dummy_embedder())
+            .unwrap();
 
         // Test with quiet = true (should not crash or fail)
         let stats = run_index_with_embedder(&project_dir, true, false, &dummy_embedder()).unwrap();
@@ -1645,11 +1644,7 @@ mod tests {
 
         create_test_file(&project_dir, "allowed.md", b"# Allowed\n\nKeep me.");
         create_test_file(&project_dir, "ignored/test.md", b"# Ignored\n\nSkip me.");
-        create_test_file(
-            &project_dir,
-            "memex.json",
-            br#"{"exclude": ["ignored/"]}"#,
-        );
+        create_test_file(&project_dir, "memex.json", br#"{"exclude": ["ignored/"]}"#);
 
         let init_stats = crate::cli::init::init_project_with_embedder(
             &project_dir,
@@ -1661,7 +1656,11 @@ mod tests {
         assert_eq!(init_stats.files_added, 1);
 
         // Add another ignored file
-        create_test_file(&project_dir, "ignored/another.md", b"# Ignored 2\n\nSkip me too.");
+        create_test_file(
+            &project_dir,
+            "ignored/another.md",
+            b"# Ignored 2\n\nSkip me too.",
+        );
 
         let index_stats =
             run_index_with_embedder(&project_dir, false, false, &dummy_embedder()).unwrap();

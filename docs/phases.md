@@ -223,7 +223,7 @@ Implement stdio JSON-RPC 2.0 transport, tool definitions, request routing, and q
 
 ### Tasks
 
-- [ ] **TASK-7.1: MCP JSON-RPC Stdio Framing & Transport (`src/mcp/transport.rs`)**
+- [x] **TASK-7.1: MCP JSON-RPC Stdio Framing & Transport (`src/mcp/transport.rs`)**
   - **Description:** Implement asynchronous line-delimited JSON-RPC 2.0 stdio read/write loop. Enforce strict discipline: all tracing/logging goes to `stderr`, `stdout` carries only valid JSON-RPC lines.
   - **Deliverable:** `McpTransport::listen<H: RequestHandler>(handler: H) -> Result<()>`.
   - **Verification:** Unit test asserting JSON-RPC frame serialization and deserialization.
