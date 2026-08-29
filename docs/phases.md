@@ -129,7 +129,7 @@ Transform Markdown files into an AST, generate contextually prefixed chunks, bui
 
 ### Tasks
 
-- [ ] **TASK-4.1: Markdown Event-to-AST Parser (`src/ingestion/parser.rs`)**
+- [x] **TASK-4.1: Markdown Event-to-AST Parser (`src/ingestion/parser.rs`)**
   - **Description:** Build an event parser on top of `pulldown-cmark` using a heading stack to construct a structured AST (Headings H1-H6, Paragraphs, CodeBlocks with language, Lists). Track line numbers and byte offsets.
   - **Deliverable:** `MarkdownParser::parse(content: &str) -> Result<DocumentAst>`.
   - **Verification:** Unit tests verifying correct tree hierarchy on documents with H1, H2, and H3.

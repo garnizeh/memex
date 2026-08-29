@@ -83,7 +83,7 @@ impl FileDiscovery {
                             return false;
                         }
                     }
-                    let is_dir = entry.file_type().map_or(false, |ft| ft.is_dir());
+                    let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
                     if is_dir && filter.is_ignored(entry.path(), true) {
                         return false;
                     }
@@ -98,10 +98,8 @@ impl FileDiscovery {
                 Ok(entry) => {
                     let path = entry.path();
                     let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
-                    if !is_dir && is_markdown_file(path) {
-                        if !filter.is_ignored(path, false) {
-                            discovered.push(path.to_path_buf());
-                        }
+                    if !is_dir && is_markdown_file(path) && !filter.is_ignored(path, false) {
+                        discovered.push(path.to_path_buf());
                     }
                 }
                 Err(err) => {
