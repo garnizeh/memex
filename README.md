@@ -25,15 +25,21 @@
 
 ## 🚀 Quick Start
 
-### 1. Build and Install Binary
+### 1. Fast Installation (Pre-built Binaries)
 
-Build the optimized standalone binary and install it to your `PATH`:
+No Rust toolchain required. Install the latest official binary for your platform:
 
+**macOS (Apple Silicon) & Linux:**
 ```bash
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/garnizeh/memex/main/install.sh | sh
 ```
 
-Alternatively, compile locally with `cargo build --release` (binary output at `target/release/memex`).
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/garnizeh/memex/main/install.ps1 | iex
+```
+
+*(Alternatively, build from source via `cargo install --path .` or `cargo build --release`)*
 
 ### 2. Auto-Register with AI Agents
 
