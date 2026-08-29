@@ -3,17 +3,19 @@
 //! Provides atomic, transactional batch writes for documents, chunks,
 //! graph edges, and `sqlite-vec` vector embeddings, as well as cascade deletions.
 
-use rusqlite::{params, Connection, Transaction};
 use crate::errors::{MemexError, Result};
 use crate::models::{Chunk, ChunkType, Document, Edge, EdgeType};
 use crate::storage::vec::vector_to_bytes;
+use rusqlite::{params, Connection, Transaction};
 
 /// Converts a [`ChunkType`] into its database string representation.
 pub fn chunk_type_to_str(chunk_type: &ChunkType) -> String {
     match chunk_type {
         ChunkType::Heading { level } => format!("heading:{level}"),
         ChunkType::Paragraph => "paragraph".to_string(),
-        ChunkType::CodeBlock { language: Some(lang) } => format!("code_block:{lang}"),
+        ChunkType::CodeBlock {
+            language: Some(lang),
+        } => format!("code_block:{lang}"),
         ChunkType::CodeBlock { language: None } => "code_block".to_string(),
         ChunkType::List => "list".to_string(),
     }
@@ -22,9 +24,9 @@ pub fn chunk_type_to_str(chunk_type: &ChunkType) -> String {
 /// Parses a database string representation into a [`ChunkType`].
 pub fn str_to_chunk_type(s: &str) -> Result<ChunkType> {
     if let Some(level_str) = s.strip_prefix("heading:") {
-        let level = level_str
-            .parse::<u8>()
-            .map_err(|_| MemexError::TransactionError(format!("Invalid heading level in chunk_type: {s}")))?;
+        let level = level_str.parse::<u8>().map_err(|_| {
+            MemexError::TransactionError(format!("Invalid heading level in chunk_type: {s}"))
+        })?;
         return Ok(ChunkType::Heading { level });
     }
     if s == "heading" {
@@ -291,12 +293,9 @@ impl<'a> StorageWriter<'a> {
         tx: &Transaction,
         vectors: &[(S, V)],
     ) -> Result<()> {
-        let mut del_stmt = tx.prepare_cached(
-            "DELETE FROM vec_chunks WHERE chunk_id = ?1;",
-        )?;
-        let mut ins_stmt = tx.prepare_cached(
-            "INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?1, ?2);",
-        )?;
+        let mut del_stmt = tx.prepare_cached("DELETE FROM vec_chunks WHERE chunk_id = ?1;")?;
+        let mut ins_stmt =
+            tx.prepare_cached("INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?1, ?2);")?;
 
         for (chunk_id, embedding) in vectors {
             let id = chunk_id.as_ref();
@@ -333,16 +332,10 @@ impl<'a> StorageWriter<'a> {
         )?;
 
         // 3. Delete chunks belonging to this doc
-        tx.execute(
-            "DELETE FROM chunks WHERE doc_id = ?1;",
-            params![doc_id],
-        )?;
+        tx.execute("DELETE FROM chunks WHERE doc_id = ?1;", params![doc_id])?;
 
         // 4. Delete the document record
-        let deleted = tx.execute(
-            "DELETE FROM documents WHERE id = ?1;",
-            params![doc_id],
-        )?;
+        let deleted = tx.execute("DELETE FROM documents WHERE id = ?1;", params![doc_id])?;
 
         Ok(deleted)
     }
@@ -404,13 +397,17 @@ mod tests {
             indexed_at: 1700000000,
         };
 
-        writer.insert_document(&doc).expect("insert document failed");
+        writer
+            .insert_document(&doc)
+            .expect("insert document failed");
 
         let count: i64 = writer
             .conn()
-            .query_row("SELECT count(*) FROM documents WHERE id = 'doc-1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT count(*) FROM documents WHERE id = 'doc-1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
 
@@ -478,13 +475,17 @@ mod tests {
             },
         ];
 
-        writer.insert_chunks_batch(&chunks).expect("insert chunks failed");
+        writer
+            .insert_chunks_batch(&chunks)
+            .expect("insert chunks failed");
 
         let count: i64 = writer
             .conn()
-            .query_row("SELECT count(*) FROM chunks WHERE doc_id = 'doc-1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT count(*) FROM chunks WHERE doc_id = 'doc-1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 2);
     }
@@ -536,13 +537,17 @@ mod tests {
             link_text: None,
         }];
 
-        writer.insert_edges_batch(&edges).expect("insert edges failed");
+        writer
+            .insert_edges_batch(&edges)
+            .expect("insert edges failed");
 
         let count: i64 = writer
             .conn()
-            .query_row("SELECT count(*) FROM edges WHERE source_chunk_id = 'c-1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT count(*) FROM edges WHERE source_chunk_id = 'c-1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
     }
@@ -555,12 +560,11 @@ mod tests {
         let vec1: Vec<f32> = vec![0.1; 384];
         let vec2: Vec<f32> = vec![0.2; 384];
 
-        let vectors = vec![
-            ("c-1", &vec1[..]),
-            ("c-2", &vec2[..]),
-        ];
+        let vectors = vec![("c-1", &vec1[..]), ("c-2", &vec2[..])];
 
-        writer.insert_vectors_batch(&vectors).expect("insert vectors failed");
+        writer
+            .insert_vectors_batch(&vectors)
+            .expect("insert vectors failed");
 
         let count: i64 = writer
             .conn()
@@ -633,17 +637,42 @@ mod tests {
 
         // 4. Insert Vectors
         let dummy_vec: Vec<f32> = vec![0.5; 384];
-        let vectors = vec![
-            ("del-c1", &dummy_vec[..]),
-            ("del-c2", &dummy_vec[..]),
-        ];
+        let vectors = vec![("del-c1", &dummy_vec[..]), ("del-c2", &dummy_vec[..])];
         writer.insert_vectors_batch(&vectors).unwrap();
 
         // Verify initial counts
-        let doc_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM documents WHERE id = 'doc-to-delete'", [], |r| r.get(0)).unwrap();
-        let chunk_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM chunks WHERE doc_id = 'doc-to-delete'", [], |r| r.get(0)).unwrap();
-        let edge_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM edges WHERE source_chunk_id = 'del-c1'", [], |r| r.get(0)).unwrap();
-        let vec_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM vec_chunks WHERE chunk_id IN ('del-c1', 'del-c2')", [], |r| r.get(0)).unwrap();
+        let doc_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM documents WHERE id = 'doc-to-delete'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let chunk_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM chunks WHERE doc_id = 'doc-to-delete'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let edge_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM edges WHERE source_chunk_id = 'del-c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let vec_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM vec_chunks WHERE chunk_id IN ('del-c1', 'del-c2')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
 
         assert_eq!(doc_cnt, 1);
         assert_eq!(chunk_cnt, 2);
@@ -651,14 +680,37 @@ mod tests {
         assert_eq!(vec_cnt, 2);
 
         // 5. Delete document
-        let deleted = writer.delete_document("doc-to-delete").expect("delete_document failed");
+        let deleted = writer
+            .delete_document("doc-to-delete")
+            .expect("delete_document failed");
         assert_eq!(deleted, 1);
 
         // Assert all cascading records are gone
-        let doc_cnt_after: i64 = writer.conn().query_row("SELECT count(*) FROM documents WHERE id = 'doc-to-delete'", [], |r| r.get(0)).unwrap();
-        let chunk_cnt_after: i64 = writer.conn().query_row("SELECT count(*) FROM chunks WHERE doc_id = 'doc-to-delete'", [], |r| r.get(0)).unwrap();
+        let doc_cnt_after: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM documents WHERE id = 'doc-to-delete'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let chunk_cnt_after: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM chunks WHERE doc_id = 'doc-to-delete'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         let edge_cnt_after: i64 = writer.conn().query_row("SELECT count(*) FROM edges WHERE source_chunk_id = 'del-c1' OR target_chunk_id = 'del-c2'", [], |r| r.get(0)).unwrap();
-        let vec_cnt_after: i64 = writer.conn().query_row("SELECT count(*) FROM vec_chunks WHERE chunk_id IN ('del-c1', 'del-c2')", [], |r| r.get(0)).unwrap();
+        let vec_cnt_after: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM vec_chunks WHERE chunk_id IN ('del-c1', 'del-c2')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
 
         assert_eq!(doc_cnt_after, 0, "document should be deleted");
         assert_eq!(chunk_cnt_after, 0, "chunks should be cascade deleted");
@@ -699,9 +751,30 @@ mod tests {
             .save_document_bundle(&doc, &chunks, &edges, &vectors)
             .expect("save_document_bundle should succeed");
 
-        let doc_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM documents WHERE id = 'bundle-doc'", [], |r| r.get(0)).unwrap();
-        let chunk_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM chunks WHERE doc_id = 'bundle-doc'", [], |r| r.get(0)).unwrap();
-        let vec_cnt: i64 = writer.conn().query_row("SELECT count(*) FROM vec_chunks WHERE chunk_id = 'b-c1'", [], |r| r.get(0)).unwrap();
+        let doc_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM documents WHERE id = 'bundle-doc'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let chunk_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM chunks WHERE doc_id = 'bundle-doc'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let vec_cnt: i64 = writer
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM vec_chunks WHERE chunk_id = 'b-c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
 
         assert_eq!(doc_cnt, 1);
         assert_eq!(chunk_cnt, 1);

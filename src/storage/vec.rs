@@ -1,8 +1,8 @@
 //! `sqlite-vec` extension loading, self-test validation, and vector conversion utilities.
 
-use std::sync::Once;
-use rusqlite::Connection;
 use crate::errors::{MemexError, Result};
+use rusqlite::Connection;
+use std::sync::Once;
 
 static VEC_EXTENSION_INIT: Once = Once::new();
 
@@ -16,12 +16,10 @@ type SqliteVecInit = unsafe extern "C" fn(
 /// and explicitly initialized on the given connection.
 pub fn ensure_sqlite_vec(conn: &Connection) -> Result<()> {
     VEC_EXTENSION_INIT.call_once(|| unsafe {
-        let auto_init_fn: Option<SqliteVecInit> = Some(std::mem::transmute::<
-            *const (),
-            SqliteVecInit,
-        >(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        ));
+        let auto_init_fn: Option<SqliteVecInit> =
+            Some(std::mem::transmute::<*const (), SqliteVecInit>(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            ));
         let _ = rusqlite::ffi::sqlite3_auto_extension(auto_init_fn);
     });
 
@@ -33,7 +31,9 @@ pub fn ensure_sqlite_vec(conn: &Connection) -> Result<()> {
         let rc = init_fn(conn.handle(), &mut err_msg, std::ptr::null());
         if rc != rusqlite::ffi::SQLITE_OK {
             let msg = if !err_msg.is_null() {
-                let s = std::ffi::CStr::from_ptr(err_msg).to_string_lossy().into_owned();
+                let s = std::ffi::CStr::from_ptr(err_msg)
+                    .to_string_lossy()
+                    .into_owned();
                 rusqlite::ffi::sqlite3_free(err_msg as *mut std::ffi::c_void);
                 s
             } else {
@@ -131,7 +131,10 @@ mod tests {
     fn test_ensure_sqlite_vec_and_version() {
         let conn = Connection::open_in_memory().unwrap();
         let version = sqlite_vec_version(&conn).expect("sqlite-vec version check should succeed");
-        assert!(!version.is_empty(), "sqlite-vec version should not be empty");
+        assert!(
+            !version.is_empty(),
+            "sqlite-vec version should not be empty"
+        );
     }
 
     #[test]
@@ -170,7 +173,8 @@ mod tests {
                 embedding FLOAT[384]
             );",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Generate synthetic 384-dim vectors
         let vec_a: Vec<f32> = (0..384).map(|i| (i as f32) / 384.0).collect();
@@ -184,12 +188,14 @@ mod tests {
         conn.execute(
             "INSERT INTO vec_test (chunk_id, embedding) VALUES (?1, ?2);",
             rusqlite::params!["chunk-a", bytes_a],
-        ).unwrap();
+        )
+        .unwrap();
 
         conn.execute(
             "INSERT INTO vec_test (chunk_id, embedding) VALUES (?1, ?2);",
             rusqlite::params!["chunk-b", bytes_b],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Query KNN with exact vec_a matching
         let mut stmt = conn
@@ -197,14 +203,20 @@ mod tests {
             .unwrap();
 
         let results: Vec<(String, f32)> = stmt
-            .query_map(rusqlite::params![bytes_a], |row| Ok((row.get(0)?, row.get(1)?)))
+            .query_map(rusqlite::params![bytes_a], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0, "chunk-a");
-        assert!(results[0].1 < 1e-5, "Exact match distance should be ~0, got {}", results[0].1);
+        assert!(
+            results[0].1 < 1e-5,
+            "Exact match distance should be ~0, got {}",
+            results[0].1
+        );
         assert_eq!(results[1].0, "chunk-b");
         assert!(results[1].1 > results[0].1);
     }

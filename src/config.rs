@@ -1,5 +1,5 @@
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tracing::warn;
 
 use crate::errors::{MemexError, Result};
@@ -22,9 +22,8 @@ impl MemexConfig {
 
     /// Parse `MemexConfig` from a JSON string.
     pub fn parse(content: &str) -> Result<Self> {
-        serde_json::from_str(content).map_err(|e| {
-            MemexError::Config(format!("Failed to parse {}: {}", Self::FILE_NAME, e))
-        })
+        serde_json::from_str(content)
+            .map_err(|e| MemexError::Config(format!("Failed to parse {}: {}", Self::FILE_NAME, e)))
     }
 
     /// Load configuration from `memex.json` in the given root directory.
@@ -32,11 +31,12 @@ impl MemexConfig {
     /// If the file does not exist, or if it is malformed, this returns the default configuration
     /// (`MemexConfig::default()`) and emits a warning log when malformed.
     pub fn load_or_default(root: &Path) -> Self {
-        let config_path = if root.is_file() && root.file_name().is_some_and(|f| f == Self::FILE_NAME) {
-            root.to_path_buf()
-        } else {
-            root.join(Self::FILE_NAME)
-        };
+        let config_path =
+            if root.is_file() && root.file_name().is_some_and(|f| f == Self::FILE_NAME) {
+                root.to_path_buf()
+            } else {
+                root.join(Self::FILE_NAME)
+            };
 
         if !config_path.exists() {
             return Self::default();
@@ -91,12 +91,14 @@ mod tests {
     #[test]
     fn test_valid_json_parsing_partial() {
         let only_exclude = r#"{"exclude": ["node_modules/"]}"#;
-        let config = MemexConfig::parse(only_exclude).expect("Should parse config with only exclude");
+        let config =
+            MemexConfig::parse(only_exclude).expect("Should parse config with only exclude");
         assert_eq!(config.exclude, vec!["node_modules/"]);
         assert!(config.include.is_empty());
 
         let only_include = r#"{"include": ["special.md"]}"#;
-        let config = MemexConfig::parse(only_include).expect("Should parse config with only include");
+        let config =
+            MemexConfig::parse(only_include).expect("Should parse config with only include");
         assert!(config.exclude.is_empty());
         assert_eq!(config.include, vec!["special.md"]);
 
@@ -148,7 +150,8 @@ mod tests {
     fn test_malformed_json_returns_defaults_and_warns() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let config_file = temp_dir.path().join("memex.json");
-        fs::write(&config_file, "{ invalid json content").expect("Failed to write malformed config");
+        fs::write(&config_file, "{ invalid json content")
+            .expect("Failed to write malformed config");
 
         let config = MemexConfig::load_or_default(temp_dir.path());
         assert_eq!(config, MemexConfig::default());
@@ -159,7 +162,8 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let config_file = temp_dir.path().join("memex.json");
         // exclude should be an array of strings, not an integer
-        fs::write(&config_file, r#"{"exclude": 12345}"#).expect("Failed to write invalid type config");
+        fs::write(&config_file, r#"{"exclude": 12345}"#)
+            .expect("Failed to write invalid type config");
 
         let config = MemexConfig::load_or_default(temp_dir.path());
         assert_eq!(config, MemexConfig::default());

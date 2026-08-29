@@ -1,6 +1,6 @@
-use std::path::Path;
-use rusqlite::{Connection, OpenFlags};
 use crate::errors::Result;
+use rusqlite::{Connection, OpenFlags};
+use std::path::Path;
 
 /// Wrapper around a SQLite connection configured for Memex with optimal pragmas.
 #[derive(Debug)]
@@ -236,7 +236,9 @@ mod tests {
     #[test]
     fn test_database_vector_extension_loaded_and_validated() {
         let db = Database::open_in_memory().unwrap();
-        let version = db.vec_version().expect("vec_version should succeed on Database");
+        let version = db
+            .vec_version()
+            .expect("vec_version should succeed on Database");
         assert!(!version.is_empty());
 
         let validated_version = db
