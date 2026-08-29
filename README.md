@@ -15,11 +15,7 @@
 
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-8A2BE2.svg?logo=anthropic&logoColor=white)](#2-auto-register-with-ai-agents)
 [![Cursor](https://img.shields.io/badge/Cursor-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
-[![Antigravity](https://img.shields.io/badge/Antigravity-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
-[![Gemini](https://img.shields.io/badge/Gemini_CLI-supported-8A2BE2.svg?logo=google&logoColor=white)](#2-auto-register-with-ai-agents)
-[![OpenCode](https://img.shields.io/badge/OpenCode-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
-[![Codex](https://img.shields.io/badge/Codex_CLI-supported-8A2BE2.svg?logo=openai&logoColor=white)](#2-auto-register-with-ai-agents)
-[![Zed](https://img.shields.io/badge/Zed_AI-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+[![Antigravity IDE](https://img.shields.io/badge/Antigravity_IDE-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
 
 **The fastest local documentation context engine · surgical retrieval · built for how agents actually work · 100% offline**
 
