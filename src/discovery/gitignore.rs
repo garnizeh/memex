@@ -160,4 +160,3 @@ mod tests {
         assert!(!filter.is_ignored(&root.join("normal.md"), false));
     }
 }
-

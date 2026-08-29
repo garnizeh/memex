@@ -116,7 +116,7 @@ Implement directory walking, `.gitignore` parsing, custom `memex.json` rules, an
   - **Deliverable:** Integrated filter chain in `discovery/walker.rs`.
   - **Verification:** Integration test with fixture containing ignored files and custom excluded/included paths.
 
-- [ ] **TASK-3.4: Content Hash Calculation Utility**
+- [x] **TASK-3.4: Content Hash Calculation Utility**
   - **Description:** Implement fast SHA-256 computation over file contents (`SHA256(bytes)`) for incremental change detection.
   - **Deliverable:** `compute_file_hash(path: &Path) -> Result<String>`.
   - **Verification:** Unit test verifying deterministic hash matching standard `sha256sum`.

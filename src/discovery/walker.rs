@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use ignore::WalkBuilder;
+use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use crate::config::MemexConfig;
@@ -319,8 +319,14 @@ mod tests {
 
         // config excludes excluded.md and keep_this_excluded.md, but includes keep_this_*.md
         let config = MemexConfig {
-            exclude: vec!["excluded.md".to_string(), "keep_this_excluded.md".to_string()],
-            include: vec!["keep_this_ignored.md".to_string(), "keep_this_excluded.md".to_string()],
+            exclude: vec![
+                "excluded.md".to_string(),
+                "keep_this_excluded.md".to_string(),
+            ],
+            include: vec![
+                "keep_this_ignored.md".to_string(),
+                "keep_this_excluded.md".to_string(),
+            ],
         };
 
         let results = FileDiscovery::scan(root, &config).unwrap();
