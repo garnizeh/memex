@@ -1,6 +1,6 @@
 use crate::discovery::hash::compute_bytes_hash;
 use crate::ingestion::parser::{AstNode, AstNodeKind, DocumentAst};
-use crate::models::{Chunk, ChunkType};
+use crate::models::{Chunk, ChunkType, Edge, EdgeType};
 
 /// Separator used between heading levels in the contextual prefix.
 pub const HEADING_SEPARATOR: &str = " > ";
@@ -9,7 +9,7 @@ pub const HEADING_SEPARATOR: &str = " > ";
 pub const DEFAULT_MAX_CHUNK_CHARS: usize = 2000;
 
 /// Contextual chunker that traverses Markdown AST and generates contextually-prefixed chunks,
-/// enforcing maximum chunk size guardrails and splitting oversized content.
+/// builds hierarchy edges, enforces maximum chunk size guardrails, and splits oversized content.
 pub struct ContextualChunker;
 
 impl ContextualChunker {
@@ -607,6 +607,25 @@ impl ContextualChunker {
             }
         }
     }
+
+    /// Generates hierarchy edges (`EdgeType::Hierarchy`) from a slice of [`Chunk`]s.
+    ///
+    /// An edge is constructed for every chunk that has a `parent_chunk_id`, linking the parent heading
+    /// chunk (`source_chunk_id`) to the child chunk (`target_chunk_id`).
+    pub fn build_hierarchy_edges(chunks: &[Chunk]) -> Vec<Edge> {
+        let mut edges = Vec::new();
+        for chunk in chunks {
+            if let Some(parent_id) = &chunk.parent_chunk_id {
+                edges.push(Edge {
+                    source_chunk_id: parent_id.clone(),
+                    target_chunk_id: chunk.id.clone(),
+                    edge_type: EdgeType::Hierarchy,
+                    link_text: None,
+                });
+            }
+        }
+        edges
+    }
 }
 
 /// Convenience helper to generate chunks for a document AST with default max chunk size.
@@ -621,6 +640,11 @@ pub fn chunk_document_with_max_size(
     max_chars: usize,
 ) -> Vec<Chunk> {
     ContextualChunker::chunk_document_with_max_size(doc_id, ast, max_chars)
+}
+
+/// Convenience helper to build hierarchy edges from chunks.
+pub fn build_hierarchy_edges(chunks: &[Chunk]) -> Vec<Edge> {
+    ContextualChunker::build_hierarchy_edges(chunks)
 }
 
 /// Convenience helper to format contextual content given a heading path and content.
@@ -1093,5 +1117,97 @@ Content two.
         for s in split {
             assert!(s.len() <= 200);
         }
+    }
+
+    #[test]
+    fn test_build_hierarchy_edges_nested_sections() {
+        let markdown = r#"# Root H1
+Introduction under root.
+
+## Child H2 A
+Paragraph under H2 A.
+
+### Subchild H3
+Paragraph under H3.
+
+```rust
+fn code_under_h3() {}
+```
+
+## Child H2 B
+Paragraph under H2 B.
+"#;
+
+        let ast = MarkdownParser::parse(markdown).expect("Failed to parse markdown");
+        let chunks = chunk_document("doc_hierarchy_test", &ast);
+
+        // Chunks expected:
+        // 0: H1 Root H1 (parent: None)
+        // 1: Paragraph Introduction under root (parent: H1)
+        // 2: H2 Child H2 A (parent: H1)
+        // 3: Paragraph Paragraph under H2 A (parent: H2 A)
+        // 4: H3 Subchild H3 (parent: H2 A)
+        // 5: Paragraph Paragraph under H3 (parent: H3)
+        // 6: CodeBlock code_under_h3 (parent: H3)
+        // 7: H2 Child H2 B (parent: H1)
+        // 8: Paragraph Paragraph under H2 B (parent: H2 B)
+        assert_eq!(chunks.len(), 9);
+
+        let edges = build_hierarchy_edges(&chunks);
+
+        // Every chunk with parent_chunk_id != None should have exactly 1 hierarchy edge
+        assert_eq!(edges.len(), 8);
+
+        // Check edge types and link text
+        for edge in &edges {
+            assert_eq!(edge.edge_type, EdgeType::Hierarchy);
+            assert_eq!(edge.link_text, None);
+        }
+
+        let h1_id = &chunks[0].id;
+        let p_intro_id = &chunks[1].id;
+        let h2_a_id = &chunks[2].id;
+        let p_h2_a_id = &chunks[3].id;
+        let h3_id = &chunks[4].id;
+        let p_h3_id = &chunks[5].id;
+        let code_h3_id = &chunks[6].id;
+        let h2_b_id = &chunks[7].id;
+        let p_h2_b_id = &chunks[8].id;
+
+        // Verify specific hierarchy source -> target links
+        assert_eq!(edges[0].source_chunk_id, *h1_id);
+        assert_eq!(edges[0].target_chunk_id, *p_intro_id);
+
+        assert_eq!(edges[1].source_chunk_id, *h1_id);
+        assert_eq!(edges[1].target_chunk_id, *h2_a_id);
+
+        assert_eq!(edges[2].source_chunk_id, *h2_a_id);
+        assert_eq!(edges[2].target_chunk_id, *p_h2_a_id);
+
+        assert_eq!(edges[3].source_chunk_id, *h2_a_id);
+        assert_eq!(edges[3].target_chunk_id, *h3_id);
+
+        assert_eq!(edges[4].source_chunk_id, *h3_id);
+        assert_eq!(edges[4].target_chunk_id, *p_h3_id);
+
+        assert_eq!(edges[5].source_chunk_id, *h3_id);
+        assert_eq!(edges[5].target_chunk_id, *code_h3_id);
+
+        assert_eq!(edges[6].source_chunk_id, *h1_id);
+        assert_eq!(edges[6].target_chunk_id, *h2_b_id);
+
+        assert_eq!(edges[7].source_chunk_id, *h2_b_id);
+        assert_eq!(edges[7].target_chunk_id, *p_h2_b_id);
+    }
+
+    #[test]
+    fn test_build_hierarchy_edges_empty_or_no_parents() {
+        assert_eq!(build_hierarchy_edges(&[]).len(), 0);
+
+        let markdown = "Intro paragraph without headings.\n\nSecond orphan paragraph.";
+        let ast = MarkdownParser::parse(markdown).expect("Failed to parse markdown");
+        let chunks = chunk_document("doc_no_headings", &ast);
+        let edges = build_hierarchy_edges(&chunks);
+        assert_eq!(edges.len(), 0);
     }
 }

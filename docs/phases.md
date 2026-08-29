@@ -144,7 +144,7 @@ Transform Markdown files into an AST, generate contextually prefixed chunks, bui
   - **Deliverable:** Splitter function handling large paragraphs and code blocks.
   - **Verification:** Unit test with 4000-character paragraph producing split chunks with identical heading prefixes.
 
-- [ ] **TASK-4.4: Graph Hierarchy Edge Builder (`src/ingestion/chunker.rs`)**
+- [x] **TASK-4.4: Graph Hierarchy Edge Builder (`src/ingestion/chunker.rs`)**
   - **Description:** Generate `Edge { edge_type: EdgeType::Hierarchy }` records linking parent heading chunks to child heading chunks and child content chunks.
   - **Deliverable:** Generator outputting `Vec<Edge>` for document hierarchy.
   - **Verification:** Unit test asserting correct edge count and source/target IDs in nested sections.
