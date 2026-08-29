@@ -68,6 +68,10 @@ pub enum Commands {
 
     /// Start the MCP stdio JSON-RPC server
     Serve {
+        /// Optional path to project directory containing .memex/ (defaults to auto-detecting from current working directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+
         /// Run in MCP mode communicating over stdio
         #[arg(long, default_value_t = true)]
         mcp: bool,
@@ -101,8 +105,8 @@ async fn main() -> anyhow::Result<()> {
         } => {
             cli::index::run_index(&path, quiet, verbose)?;
         }
-        Commands::Serve { mcp } => {
-            cli::serve::run_serve(mcp).await?;
+        Commands::Serve { path, mcp } => {
+            cli::serve::run_serve(path.as_deref(), mcp).await?;
         }
     }
 
