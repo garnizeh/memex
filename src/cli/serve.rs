@@ -162,7 +162,7 @@ impl McpServer {
             let needs_reload = match (&*db_guard, &target_root) {
                 (Some((cached_root, _)), Some(current_root)) => cached_root != current_root,
                 (None, _) => true,
-                _ => false,
+                (_, None) => true,
             };
 
             if needs_reload {

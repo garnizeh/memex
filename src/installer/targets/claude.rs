@@ -173,7 +173,21 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         "command": "memex prompt-hook"
     });
 
-    // If there is an existing matcherless/global UserPromptSubmit entry, inject into its `hooks` array
+    // 1. Clean up legacy Memex prompt-based hooks across ALL UserPromptSubmit entries
+    for entry in user_prompt_arr.iter_mut() {
+        if let Some(inner_hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+            inner_hooks.retain(|h| {
+                let is_memex_prompt = h.get("type").and_then(|t| t.as_str()) == Some("prompt")
+                    && h.get("prompt")
+                        .and_then(|p| p.as_str())
+                        .map(|s| s.contains("Memex") || s.contains(".memex/"))
+                        .unwrap_or(false);
+                !is_memex_prompt
+            });
+        }
+    }
+
+    // 2. If there is an existing matcherless/global UserPromptSubmit entry, inject into its `hooks` array
     let mut injected = false;
     for entry in user_prompt_arr.iter_mut() {
         // Look for default/matcherless entry or the main prompt-hook entry
@@ -183,16 +197,6 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         if is_general_entry
             && let Some(inner_hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut())
         {
-            // Remove any old prompt-based memex hooks
-            inner_hooks.retain(|h| {
-                let is_memex_prompt = h.get("type").and_then(|t| t.as_str()) == Some("prompt")
-                    && h.get("prompt")
-                        .and_then(|p| p.as_str())
-                        .map(|s| s.contains("Memex") || s.contains(".memex/"))
-                        .unwrap_or(false);
-                !is_memex_prompt
-            });
-
             let already_has_memex = inner_hooks.iter().any(|h| {
                 h.get("command")
                     .and_then(|c| c.as_str())
