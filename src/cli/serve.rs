@@ -79,7 +79,19 @@ impl McpServer {
         Self {
             target_path: None,
             db: Arc::new(Mutex::new(Some((
-                std::env::current_dir().unwrap_or_default(),
+                std::path::PathBuf::from("/"),
+                db,
+            )))),
+            engine,
+        }
+    }
+
+    /// Creates an `McpServer` with an explicit root directory, `Database`, and `EmbeddingEngine` (useful for testing).
+    pub fn with_root_and_components(root: std::path::PathBuf, db: Database, engine: Arc<EmbeddingEngine>) -> Self {
+        Self {
+            target_path: Some(root.clone()),
+            db: Arc::new(Mutex::new(Some((
+                root,
                 db,
             )))),
             engine,
@@ -356,8 +368,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_server_search_documentation_tool_call() {
-        let (_temp_dir, db, engine) = setup_mock_project();
-        let server = McpServer::with_components(db, engine);
+        let (temp_dir, db, engine) = setup_mock_project();
+        let server = McpServer::with_root_and_components(temp_dir.path().to_path_buf(), db, engine);
 
         let call_req = JsonRpcRequest::new(
             10,
@@ -384,8 +396,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_server_traverse_graph_tool_call() {
-        let (_temp_dir, db, engine) = setup_mock_project();
-        let server = McpServer::with_components(db, engine);
+        let (temp_dir, db, engine) = setup_mock_project();
+        let server = McpServer::with_root_and_components(temp_dir.path().to_path_buf(), db, engine);
 
         let call_req = JsonRpcRequest::new(
             11,
@@ -412,8 +424,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_server_unknown_tool_and_method() {
-        let (_temp_dir, db, engine) = setup_mock_project();
-        let server = McpServer::with_components(db, engine);
+        let (temp_dir, db, engine) = setup_mock_project();
+        let server = McpServer::with_root_and_components(temp_dir.path().to_path_buf(), db, engine);
 
         // Unknown tool
         let unknown_tool_req = JsonRpcRequest::new(
@@ -438,8 +450,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_server_run_io_full_session() {
-        let (_temp_dir, db, engine) = setup_mock_project();
-        let server = McpServer::with_components(db, engine);
+        let (temp_dir, db, engine) = setup_mock_project();
+        let server = McpServer::with_root_and_components(temp_dir.path().to_path_buf(), db, engine);
 
         let input_lines = [
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
