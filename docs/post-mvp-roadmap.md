@@ -91,11 +91,12 @@ This document outlines a detailed technical roadmap to transition Memex from a f
      ```json
      "chunking": {
        "strategy": "semantic",
-       "max_tokens": 512,
-       "overlap_tokens": 50,
+       "max_tokens": 200,
+       "overlap_tokens": 30,
        "min_chunk_size": 32
      }
      ```
+   - *Token Budget Safety:* Ensure `max_tokens` is bounded (e.g., ≤ 200 tokens) so that when `heading_path`, parent hierarchical context, and tokenizer special tokens (`[CLS]`, `[SEP]`) are prepended into `contextual_content`, the total sequence length stays strictly within the 256-token limit of `TokenizerWrapper` / `all-MiniLM-L6-v2` to avoid truncation.
 3. **Parent-Child Indexing:**
    - Store small "child" chunks for precise retrieval but return the larger "parent" context window to the LLM.
    - *Schema Change:* Add `parent_id` to the `chunks` table.
@@ -220,10 +221,12 @@ The following standard metrics will be instrumented across the engine:
 
 | Metric Name | Type | Unit | Description | Target |
 | :--- | :--- | :--- | :--- | :---: |
-| `memex_query_duration_seconds` | Histogram | Seconds | End-to-end latency for `search_documentation` | P95 < 0.050s (< 50ms) |
+| `memex_query_duration_seconds{mode="standard"}` | Histogram | Seconds | End-to-end latency for standard KNN/FTS `search_documentation` | P95 < 0.050s (< 50ms) |
+| `memex_query_duration_seconds{mode="precise"}` | Histogram | Seconds | End-to-end latency with cross-encoder reranking (`--precise`) | P95 < 0.150s (< 150ms) |
 | `memex_token_reduction_ratio` | Histogram | Ratio (0.0-1.0) | Token reduction percentage achieved per query | > 0.90 (> 90%) |
 | `memex_onnx_inference_duration_seconds` | Histogram | Seconds | Time spent generating embeddings in ONNX session | P95 < 0.025s (< 25ms) |
 | `memex_db_query_duration_seconds` | Histogram | Seconds | SQLite + sqlite-vec query execution time | P95 < 0.010s (< 10ms) |
+| `memex_telemetry_dispatch_duration_seconds` | Histogram | Seconds | Overhead of queueing/flushing async telemetry events | P95 < 0.001s (< 1ms) |
 | `memex_indexing_throughput_chunks_per_sec`| Gauge | Chunks/s | Rate of chunks parsed, embedded, and indexed | > 100/s (CPU) |
 | `memex_mcp_requests_total` | Counter | Requests | Count of MCP requests partitioned by tool and status | — |
 | `memex_cache_hit_ratio` | Gauge | Ratio (0.0-1.0) | Hit ratio for query embeddings and chunk cache | > 0.40 |
@@ -310,8 +313,13 @@ To measure the success of these recommendations, track the following:
 1. **Adoption & Engagement:** Growth in active installs and aggregate MCP session duration.
 2. **Index Health & Reliability:** % of successful indexing runs without errors (Target: >99.5%).
 3. **Crash-Free Session Rate:** Telemetry-verified crash-free execution rate (Target: >99.9%).
-4. **Query Precision & Token Savings:** Maintain >90% (>0.90) validated token reduction and >0.85 Precision@5 across supported file formats.
-5. **Performance Governance:** Maintain P95 query latency < 0.050s (< 50ms) and telemetry dispatch overhead < 0.001s (< 1ms).
+4. **Query Precision & Token Savings:**
+   - **Token Reduction:** Maintain >90% (>0.90) reduction via `memex_token_reduction_ratio` telemetry metric.
+   - **Precision@5:** Maintain >0.85 on the standardized offline annotated benchmark fixture (`cargo bench` / `bench_search.rs`) as part of release gating.
+5. **Performance Governance:**
+   - **Standard Query Latency:** Maintain P95 < 0.050s (< 50ms) tracked via `memex_query_duration_seconds{mode="standard"}`.
+   - **Precise Query Latency:** Maintain P95 < 0.150s (< 150ms) tracked via `memex_query_duration_seconds{mode="precise"}`.
+   - **Telemetry Overhead:** Maintain P95 dispatch overhead < 0.001s (< 1ms) tracked via `memex_telemetry_dispatch_duration_seconds`.
 6. **Telemetry Transparency:** 100% compliance with privacy-first standards (zero PII, zero code retention, full opt-out support).
 7. **Ecosystem Breadth:** Expand native support to >= 5 AI agents and >= 6 file formats.
 
