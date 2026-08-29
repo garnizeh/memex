@@ -1,4 +1,7 @@
+#![cfg(unix)]
+
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use tempfile::TempDir;
 
@@ -42,17 +45,13 @@ fn test_install_git_hooks_in_new_git_repo() {
             hook_name
         );
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = fs::metadata(&hook_file).unwrap().permissions();
-            assert_ne!(
-                perms.mode() & 0o111,
-                0,
-                "Hook {} must be executable",
-                hook_name
-            );
-        }
+        let perms = fs::metadata(&hook_file).unwrap().permissions();
+        assert_ne!(
+            perms.mode() & 0o111,
+            0,
+            "Hook {} must be executable",
+            hook_name
+        );
     }
 
     // Run again to verify idempotency
@@ -89,13 +88,9 @@ fn test_install_git_hooks_wraps_non_shell_and_exiting_hooks() {
     )
     .unwrap();
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&existing_hook).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&existing_hook, perms).unwrap();
-    }
+    let mut perms = fs::metadata(&existing_hook).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&existing_hook, perms).unwrap();
 
     let script_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
