@@ -233,7 +233,7 @@ Implement stdio JSON-RPC 2.0 transport, tool definitions, request routing, and q
   - **Deliverable:** Schema descriptors matching Section 7 of `architecture.md`.
   - **Verification:** Unit test validating generated tool schema against standard MCP specs.
 
-- [ ] **TASK-7.3: Tool Handler: `search_documentation` (`src/mcp/tools.rs`)**
+- [x] **TASK-7.3: Tool Handler: `search_documentation` (`src/mcp/tools.rs`)**
   - **Description:** Implement tool handler: (1) validate query parameters, (2) embed query with `EmbeddingEngine`, (3) execute KNN search in `StorageReader`, (4) format markdown response with file paths, heading breadcrumbs, line numbers, and similarity score.
   - **Deliverable:** Tool execution function for `search_documentation`.
   - **Verification:** Integration test calling search on indexed test fixture and verifying structured output.
