@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/garnizeh/memex/compare/memex-v0.3.0...memex-v0.4.0) (2026-08-29)
+
+
+### Features
+
+* migrate to Rust 2024 edition and initialize agent harness ([e6dfb74](https://github.com/garnizeh/memex/commit/e6dfb744439528d213614b514379d2ef6c3396cd))
+
 ## [0.3.0](https://github.com/garnizeh/memex/compare/memex-v0.2.0...memex-v0.3.0) (2026-08-29)
 
 
