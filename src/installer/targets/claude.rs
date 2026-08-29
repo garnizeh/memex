@@ -131,10 +131,10 @@ pub fn inject_claude_permissions(settings_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Helper function to safely inject Memex instructions or hooks into `settings.json`.
+/// Helper function to safely inject Memex prompt-hook into `settings.json`.
 ///
-/// Configures UserPromptSubmit hook matching Claude Code's expected schema:
-/// `{ "hooks": { "UserPromptSubmit": [ { "matcher": "", "hooks": [ { "type": "prompt", "prompt": "..." } ] } ] } }`
+/// Configures UserPromptSubmit hook matching Claude Code's command schema:
+/// `{ "matcher": "", "hooks": [ { "type": "command", "command": "memex prompt-hook" } ] }`
 pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
     let mut settings = read_json_value(settings_path)?.unwrap_or_else(|| serde_json::json!({}));
 
@@ -168,14 +168,12 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         .as_array_mut()
         .expect("UserPromptSubmit must be an array");
 
-    let hook_instruction = "In repositories indexed by Memex (a `.memex/` directory exists at the repo root), reach for it BEFORE full file reads or broad grepping when you need to understand or locate documentation: use `search_documentation` for semantic search and `traverse_graph` for surrounding context.";
-
-    let memex_matcher_entry = serde_json::json!({
+    let memex_command_entry = serde_json::json!({
         "matcher": "",
         "hooks": [
             {
-                "type": "prompt",
-                "prompt": hook_instruction
+                "type": "command",
+                "command": "memex prompt-hook"
             }
         ]
     });
@@ -183,31 +181,33 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
     let already_present = user_prompt_arr.iter().any(|entry| {
         if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
             inner_hooks.iter().any(|h| {
-                h.get("prompt")
-                    .and_then(|p| p.as_str())
-                    .map(|s| s.contains("Memex") || s.contains(".memex/"))
+                h.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.contains("memex"))
                     .unwrap_or(false)
             })
         } else {
-            entry
-                .get("prompt")
-                .and_then(|p| p.as_str())
-                .map(|s| s.contains("Memex") || s.contains(".memex/"))
-                .unwrap_or(false)
+            false
         }
     });
 
-    // Remove any malformed flat entries previously created
+    // Remove any previous prompt-only entries created for memex
     user_prompt_arr.retain(|entry| {
-        if entry.get("type").is_some() && entry.get("prompt").is_some() {
-            let prompt_text = entry.get("prompt").and_then(|p| p.as_str()).unwrap_or("");
-            return !prompt_text.contains("Memex") && !prompt_text.contains(".memex/");
+        if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
+            let is_memex_prompt = inner_hooks.iter().any(|h| {
+                h.get("type").and_then(|t| t.as_str()) == Some("prompt")
+                    && h.get("prompt")
+                        .and_then(|p| p.as_str())
+                        .map(|s| s.contains("Memex") || s.contains(".memex/"))
+                        .unwrap_or(false)
+            });
+            return !is_memex_prompt;
         }
         true
     });
 
     if !already_present {
-        user_prompt_arr.push(memex_matcher_entry);
+        user_prompt_arr.push(memex_command_entry);
     }
 
     atomic_write_json(settings_path, &settings)?;

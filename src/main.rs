@@ -76,6 +76,10 @@ pub enum Commands {
         #[arg(long, default_value_t = true)]
         mcp: bool,
     },
+
+    /// Claude Code UserPromptSubmit prehook command for automated context injection
+    #[command(name = "prompt-hook")]
+    PromptHook,
 }
 
 #[tokio::main]
@@ -107,6 +111,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Serve { path, mcp } => {
             cli::serve::run_serve(path.as_deref(), mcp).await?;
+        }
+        Commands::PromptHook => {
+            cli::prompt_hook::run_prompt_hook()?;
         }
     }
 
