@@ -134,7 +134,7 @@ Transform Markdown files into an AST, generate contextually prefixed chunks, bui
   - **Deliverable:** `MarkdownParser::parse(content: &str) -> Result<DocumentAst>`.
   - **Verification:** Unit tests verifying correct tree hierarchy on documents with H1, H2, and H3.
 
-- [ ] **TASK-4.2: Contextual Prefix Generator (`src/ingestion/chunker.rs`)**
+- [x] **TASK-4.2: Contextual Prefix Generator (`src/ingestion/chunker.rs`)**
   - **Description:** Traverse AST leaves, collect ancestor heading titles into `heading_path: Vec<String>`, and format `contextual_content` (e.g. `"[Title > Section > Subsection] Paragraph text..."`).
   - **Deliverable:** Function generating prefixed text for every leaf node.
   - **Verification:** Unit tests verifying prefix formatting matches expected heading hierarchy.
