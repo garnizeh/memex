@@ -130,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_listen_io_valid_requests_and_notifications() {
-        let input_lines = vec![
+        let input_lines = [
             r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#,
             r#""#, // Empty line should be skipped
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, // Notification, no response

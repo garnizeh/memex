@@ -1557,7 +1557,7 @@ mod tests {
         let project_dir = temp_dir.path().join("proj_lifecycle");
         fs::create_dir_all(&project_dir).unwrap();
 
-        let f1 = create_test_file(&project_dir, "doc1.md", b"# Document 1\n\nInitial version.");
+        let _f1 = create_test_file(&project_dir, "doc1.md", b"# Document 1\n\nInitial version.");
         let _f2 = create_test_file(&project_dir, "doc2.md", b"# Document 2\n\nDoc 2 version.");
 
         crate::cli::init::init_project_with_embedder(&project_dir, false, false, &dummy_embedder())
