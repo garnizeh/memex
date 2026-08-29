@@ -1,5 +1,12 @@
+pub mod cli;
+pub mod config;
+pub mod discovery;
 pub mod errors;
+pub mod ingestion;
+pub mod installer;
+pub mod mcp;
 pub mod models;
+pub mod storage;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -78,41 +85,24 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Install { target, yes } => {
-            eprintln!(
-                "Installing Memex MCP (target: {:?}, non-interactive: {})",
-                target, yes
-            );
-            // TODO: Call installer module
+            cli::install::run_install(target.as_deref(), yes)?;
         }
         Commands::Init {
             path,
             force,
             verbose,
         } => {
-            eprintln!(
-                "Initializing Memex at {:?} (force: {}, verbose: {})",
-                path, force, verbose
-            );
-            // TODO: Call init pipeline
+            cli::init::run_init(&path, force, verbose)?;
         }
         Commands::Index {
             path,
             quiet,
             verbose,
         } => {
-            if !quiet {
-                eprintln!(
-                    "Indexing documentation at {:?} (verbose: {})",
-                    path, verbose
-                );
-            }
-            // TODO: Call index pipeline
+            cli::index::run_index(&path, quiet, verbose)?;
         }
         Commands::Serve { mcp } => {
-            if mcp {
-                eprintln!("Starting Memex MCP server on stdio...");
-                // TODO: Start stdio MCP event loop
-            }
+            cli::serve::run_serve(mcp).await?;
         }
     }
 
