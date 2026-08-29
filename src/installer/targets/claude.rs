@@ -81,6 +81,9 @@ impl AgentTarget for ClaudeTarget {
         // 2. Inject Claude permissions into ~/.claude/settings.json
         inject_claude_permissions(&settings_path)?;
 
+        // 3. Inject Claude hooks into ~/.claude/settings.json
+        inject_claude_hooks(&settings_path)?;
+
         Ok(())
     }
 }
@@ -122,6 +125,66 @@ pub fn inject_claude_permissions(settings_path: &Path) -> Result<()> {
         }
     } else {
         *allow = serde_json::json!(["mcp__memex__*"]);
+    }
+
+    atomic_write_json(settings_path, &settings)?;
+    Ok(())
+}
+
+/// Helper function to safely inject Memex instructions or hooks into `settings.json`.
+///
+/// Configures UserPromptSubmit / SessionStart hooks if needed to guide the model to leverage Memex tools.
+pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
+    let mut settings = read_json_value(settings_path)?.unwrap_or_else(|| serde_json::json!({}));
+
+    if !settings.is_object() {
+        settings = serde_json::json!({});
+    }
+
+    let settings_obj = settings
+        .as_object_mut()
+        .expect("settings must be a JSON object");
+
+    let hooks = settings_obj
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+
+    if !hooks.is_object() {
+        *hooks = serde_json::json!({});
+    }
+
+    let hooks_obj = hooks
+        .as_object_mut()
+        .expect("hooks must be a JSON object");
+
+    let user_prompt = hooks_obj
+        .entry("UserPromptSubmit")
+        .or_insert_with(|| serde_json::json!([]));
+
+    if !user_prompt.is_array() {
+        *user_prompt = serde_json::json!([]);
+    }
+
+    let user_prompt_arr = user_prompt
+        .as_array_mut()
+        .expect("UserPromptSubmit must be an array");
+
+    let hook_instruction = "In repositories indexed by Memex (a `.memex/` directory exists at the repo root), reach for it BEFORE full file reads or broad grepping when you need to understand or locate documentation: use `search_documentation` for semantic search and `traverse_graph` for surrounding context.";
+
+    let memex_hook = serde_json::json!({
+        "type": "prompt",
+        "prompt": hook_instruction
+    });
+
+    let already_present = user_prompt_arr.iter().any(|h| {
+        h.get("prompt")
+            .and_then(|p| p.as_str())
+            .map(|s| s.contains("Memex") || s.contains(".memex/"))
+            .unwrap_or(false)
+    });
+
+    if !already_present {
+        user_prompt_arr.push(memex_hook);
     }
 
     atomic_write_json(settings_path, &settings)?;
