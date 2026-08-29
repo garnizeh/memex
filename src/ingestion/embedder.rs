@@ -1,7 +1,12 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::{info, warn};
+
+use ort::session::builder::GraphOptimizationLevel;
+use ort::session::Session;
+use tokenizers::Tokenizer;
 
 use crate::discovery::hash::compute_file_hash;
 use crate::errors::{MemexError, Result};
@@ -30,6 +35,114 @@ pub struct ModelAssets {
     pub model_path: PathBuf,
     /// Absolute path to the tokenizer configuration file (`tokenizer.json`).
     pub tokenizer_path: PathBuf,
+}
+
+/// Thread-safe local embedding engine executing inference via ONNX Runtime and tokenizers.
+#[derive(Debug, Clone)]
+pub struct EmbeddingEngine {
+    /// ONNX Runtime session wrapped in `Arc` for thread-safe concurrent reuse.
+    pub session: Arc<Session>,
+    /// Fast tokenizer instance wrapped in `Arc`.
+    pub tokenizer: Arc<Tokenizer>,
+    /// Model assets used to initialize this engine.
+    pub assets: ModelAssets,
+}
+
+impl EmbeddingEngine {
+    /// Initializes the ONNX Runtime session and tokenizer using default performance settings.
+    pub fn new(assets: &ModelAssets) -> Result<Self> {
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8);
+        Self::with_threads(assets, num_threads)
+    }
+
+    /// Initializes the ONNX Runtime session and tokenizer with custom thread configuration.
+    pub fn with_threads(assets: &ModelAssets, intra_threads: usize) -> Result<Self> {
+        if !assets.model_path.exists() {
+            return Err(MemexError::ModelLoadError(format!(
+                "Model file not found at '{}'",
+                assets.model_path.display()
+            )));
+        }
+
+        if !assets.tokenizer_path.exists() {
+            return Err(MemexError::ModelLoadError(format!(
+                "Tokenizer file not found at '{}'",
+                assets.tokenizer_path.display()
+            )));
+        }
+
+        let tokenizer = Tokenizer::from_file(&assets.tokenizer_path).map_err(|e| {
+            MemexError::TokenizerError(format!(
+                "Failed to load tokenizer from '{}': {e}",
+                assets.tokenizer_path.display()
+            ))
+        })?;
+
+        let mut builder = Session::builder()
+            .map_err(|e| {
+                MemexError::ModelLoadError(format!(
+                    "Failed to initialize ONNX session builder: {e}"
+                ))
+            })?
+            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .map_err(|e| {
+                MemexError::ModelLoadError(format!("Failed setting ONNX optimization level: {e}"))
+            })?
+            .with_intra_threads(intra_threads)
+            .map_err(|e| {
+                MemexError::ModelLoadError(format!("Failed setting ONNX intra threads: {e}"))
+            })?;
+
+        let model_bytes = fs::read(&assets.model_path).map_err(MemexError::Io)?;
+        let session = builder.commit_from_memory(&model_bytes).map_err(|e| {
+            MemexError::ModelLoadError(format!(
+                "Failed loading ONNX model from '{}': {e}",
+                assets.model_path.display()
+            ))
+        })?;
+
+        Ok(Self {
+            session: Arc::new(session),
+            tokenizer: Arc::new(tokenizer),
+            assets: assets.clone(),
+        })
+    }
+
+    /// Returns a reference to the wrapped ONNX Runtime session.
+    pub fn session(&self) -> &Arc<Session> {
+        &self.session
+    }
+
+    /// Returns a reference to the wrapped Tokenizer.
+    pub fn tokenizer(&self) -> &Arc<Tokenizer> {
+        &self.tokenizer
+    }
+
+    /// Returns the ModelAssets used by this engine.
+    pub fn assets(&self) -> &ModelAssets {
+        &self.assets
+    }
+
+    /// Returns the session inputs information (names).
+    pub fn input_names(&self) -> Vec<String> {
+        self.session
+            .inputs()
+            .iter()
+            .map(|input| input.name().to_string())
+            .collect()
+    }
+
+    /// Returns the session outputs information (names).
+    pub fn output_names(&self) -> Vec<String> {
+        self.session
+            .outputs()
+            .iter()
+            .map(|output| output.name().to_string())
+            .collect()
+    }
 }
 
 /// Manages the resolution, downloading, caching, and integrity verification of embedding model assets.
@@ -385,6 +498,99 @@ mod tests {
                 assert!(msg.contains("Failed to download ONNX model"));
             }
             err => panic!("Unexpected error variant: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_embedding_engine_missing_model_file() {
+        let temp = tempdir().expect("temp dir failed");
+        let tokenizer_path = temp.path().join("tokenizer.json");
+        fs::write(&tokenizer_path, b"{}").expect("write tokenizer failed");
+
+        let assets = ModelAssets {
+            model_path: temp.path().join("nonexistent.onnx"),
+            tokenizer_path,
+        };
+
+        let result = EmbeddingEngine::new(&assets);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            MemexError::ModelLoadError(msg) => {
+                assert!(msg.contains("Model file not found"));
+            }
+            err => panic!("Unexpected error: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_embedding_engine_missing_tokenizer_file() {
+        let temp = tempdir().expect("temp dir failed");
+        let model_path = temp.path().join("model.onnx");
+        fs::write(&model_path, b"dummy onnx").expect("write model failed");
+
+        let assets = ModelAssets {
+            model_path,
+            tokenizer_path: temp.path().join("nonexistent_tokenizer.json"),
+        };
+
+        let result = EmbeddingEngine::new(&assets);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            MemexError::ModelLoadError(msg) => {
+                assert!(msg.contains("Tokenizer file not found"));
+            }
+            err => panic!("Unexpected error: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_embedding_engine_invalid_tokenizer_json() {
+        let temp = tempdir().expect("temp dir failed");
+        let model_path = temp.path().join("model.onnx");
+        let tokenizer_path = temp.path().join("tokenizer.json");
+        fs::write(&model_path, b"dummy onnx").expect("write model failed");
+        fs::write(&tokenizer_path, b"not valid json").expect("write tokenizer failed");
+
+        let assets = ModelAssets {
+            model_path,
+            tokenizer_path,
+        };
+
+        let result = EmbeddingEngine::new(&assets);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            MemexError::TokenizerError(msg) => {
+                assert!(msg.contains("Failed to load tokenizer"));
+            }
+            err => panic!("Unexpected error: {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_embedding_engine_invalid_model_bytes() {
+        let temp = tempdir().expect("temp dir failed");
+        let model_path = temp.path().join("model.onnx");
+        let tokenizer_path = temp.path().join("tokenizer.json");
+
+        let tokenizer = tokenizers::Tokenizer::new(tokenizers::models::bpe::BPE::default());
+        tokenizer
+            .save(&tokenizer_path, true)
+            .expect("save tokenizer failed");
+
+        fs::write(&model_path, b"not a valid onnx protobuf").expect("write model failed");
+
+        let assets = ModelAssets {
+            model_path,
+            tokenizer_path,
+        };
+
+        let result = EmbeddingEngine::with_threads(&assets, 2);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            MemexError::ModelLoadError(msg) => {
+                assert!(msg.contains("Failed loading ONNX model"));
+            }
+            err => panic!("Unexpected error: {err:?}"),
         }
     }
 }

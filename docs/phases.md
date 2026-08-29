@@ -167,7 +167,7 @@ Integrate ONNX Runtime via `ort`, handle tokenizer loading, execute batched infe
   - **Deliverable:** `ModelManager::ensure_model_assets() -> Result<ModelAssets>`.
   - **Verification:** Unit test verifying asset cache path resolution and file integrity check.
 
-- [ ] **TASK-5.2: ONNX Runtime Session Management**
+- [x] **TASK-5.2: ONNX Runtime Session Management**
   - **Description:** Initialize `ort::Session` with optimized thread settings. Wrap session in `Arc<Session>` for thread-safe reuse across batches and MCP requests.
   - **Deliverable:** `EmbeddingEngine::new(assets: &ModelAssets) -> Result<Self>`.
   - **Verification:** Test initializing session and verifying input/output tensor shapes.
