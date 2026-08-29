@@ -54,6 +54,97 @@ impl IndexDelta {
     }
 }
 
+/// Represents a non-fatal per-file indexing error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileIndexError {
+    /// Path of the file that failed during indexing.
+    pub file_path: PathBuf,
+    /// Detailed error message describing why ingestion failed.
+    pub message: String,
+    /// Unix timestamp (seconds) when the error was recorded.
+    pub timestamp: u64,
+}
+
+/// Helper for capturing and persisting non-fatal per-file indexing errors to `.memex/errors.log`.
+#[derive(Debug, Clone)]
+pub struct ErrorLogRecorder {
+    log_path: PathBuf,
+    errors: Vec<FileIndexError>,
+}
+
+impl ErrorLogRecorder {
+    /// Creates a new [`ErrorLogRecorder`] targeting `<root>/.memex/errors.log`.
+    pub fn new(root: &Path) -> Self {
+        Self::with_log_path(root.join(".memex").join("errors.log"))
+    }
+
+    /// Creates a new [`ErrorLogRecorder`] targeting an explicit log file path.
+    pub fn with_log_path(log_path: PathBuf) -> Self {
+        Self {
+            log_path,
+            errors: Vec::new(),
+        }
+    }
+
+    /// Records an indexing error for the specified file.
+    pub fn record(&mut self, file_path: PathBuf, message: impl Into<String>) {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        self.errors.push(FileIndexError {
+            file_path,
+            message: message.into(),
+            timestamp,
+        });
+    }
+
+    /// Returns a slice of all recorded errors.
+    pub fn errors(&self) -> &[FileIndexError] {
+        &self.errors
+    }
+
+    /// Returns `true` if any errors have been recorded.
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
+    /// Returns the target log file path.
+    pub fn log_path(&self) -> &Path {
+        &self.log_path
+    }
+
+    /// Flushes the error state to disk:
+    /// - If errors were recorded, writes formatted error summaries to the log file.
+    /// - If no errors were recorded (clean index), deletes the log file if it exists.
+    pub fn sync(&self) -> Result<()> {
+        if self.errors.is_empty() {
+            if self.log_path.exists() {
+                let _ = std::fs::remove_file(&self.log_path);
+            }
+            return Ok(());
+        }
+
+        if let Some(parent) = self.log_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut content = String::new();
+        for err in &self.errors {
+            content.push_str(&format!(
+                "[{}] {}: {}\n",
+                err.timestamp,
+                err.file_path.display(),
+                err.message
+            ));
+        }
+
+        std::fs::write(&self.log_path, content)?;
+        Ok(())
+    }
+}
+
 /// Execution statistics for an indexing pass executed by [`IndexCoordinator`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct IndexStats {
@@ -65,12 +156,16 @@ pub struct IndexStats {
     pub files_removed: usize,
     /// Number of existing files that remained unchanged and were skipped.
     pub files_unchanged: usize,
+    /// Number of files that failed to read or parse.
+    pub files_failed: usize,
     /// Total documentation chunks parsed and written to the database.
     pub chunks_indexed: usize,
     /// Total hierarchy and explicit link edges inserted into the knowledge graph.
     pub edges_created: usize,
     /// Total vector embeddings generated and stored in `vec_chunks`.
     pub vectors_indexed: usize,
+    /// Detailed list of per-file errors encountered during indexing.
+    pub errors: Vec<FileIndexError>,
     /// Elapsed duration of the indexing execution.
     pub duration: Duration,
 }
@@ -81,9 +176,18 @@ impl IndexStats {
         self.files_added > 0 || self.files_modified > 0 || self.files_removed > 0
     }
 
-    /// Returns the total number of files discovered and processed.
+    /// Returns `true` if any per-file errors occurred during indexing.
+    pub fn has_errors(&self) -> bool {
+        self.files_failed > 0 || !self.errors.is_empty()
+    }
+
+    /// Returns the total number of files discovered and processed (including failed files).
     pub fn total_files(&self) -> usize {
-        self.files_added + self.files_modified + self.files_removed + self.files_unchanged
+        self.files_added
+            + self.files_modified
+            + self.files_removed
+            + self.files_unchanged
+            + self.files_failed
     }
 
     /// Returns the total number of file mutations applied.
@@ -224,6 +328,7 @@ impl DeltaClassifier {
 /// 3. Graph Edge Generation (Hierarchy & Explicit Links)
 /// 4. Batched Vector Embedding (`ChunkEmbedder` / `EmbeddingEngine`)
 /// 5. Atomic Database Mutation & Deletion within a single SQLite Transaction (`StorageWriter`)
+/// 6. Error Isolation & `.memex/errors.log` Recording (`ErrorLogRecorder`)
 pub struct IndexCoordinator<'a> {
     root: &'a Path,
     db: &'a mut Database,
@@ -253,17 +358,21 @@ impl<'a> IndexCoordinator<'a> {
         embedder: &E,
     ) -> Result<IndexStats> {
         let start_time = Instant::now();
+        let mut error_recorder = ErrorLogRecorder::new(self.root);
 
-        // If there are no changes, return early with accurate unchanged stats
+        // If there are no changes, sync clean error log and return early with accurate unchanged stats
         if !delta.has_changes() {
+            error_recorder.sync()?;
             return Ok(IndexStats {
                 files_added: 0,
                 files_modified: 0,
                 files_removed: 0,
                 files_unchanged: delta.unchanged.len(),
+                files_failed: 0,
                 chunks_indexed: 0,
                 edges_created: 0,
                 vectors_indexed: 0,
+                errors: Vec::new(),
                 duration: start_time.elapsed(),
             });
         }
@@ -284,7 +393,7 @@ impl<'a> IndexCoordinator<'a> {
             }
         }
 
-        // 2. Parse, chunk, and extract edges for all added and modified files
+        // 2. Parse, chunk, and extract edges for all added and modified files with error isolation
         let mut files_to_process = Vec::new();
         files_to_process.extend(delta.added.iter().map(|p| (p, true))); // (path, is_added)
         files_to_process.extend(delta.modified.iter().map(|p| (p, false))); // (path, is_modified)
@@ -293,30 +402,48 @@ impl<'a> IndexCoordinator<'a> {
         let mut all_chunks: Vec<Chunk> = Vec::new();
         let mut all_hierarchy_edges: Vec<Edge> = Vec::new();
 
+        let mut successful_added: usize = 0;
+        let mut successful_modified: Vec<PathBuf> = Vec::new();
+
         let now_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
 
-        for (file_path, _) in &files_to_process {
+        for (file_path, is_added) in &files_to_process {
             let full_path = if file_path.is_absolute() {
                 file_path.to_path_buf()
             } else {
                 self.root.join(file_path)
             };
 
-            let content = std::fs::read_to_string(&full_path).map_err(|e| {
-                MemexError::Io(std::io::Error::new(
-                    e.kind(),
-                    format!("Failed to read file '{}': {e}", full_path.display()),
-                ))
-            })?;
+            // Attempt to read file content, capturing IO / UTF-8 encoding errors without aborting
+            let content = match std::fs::read_to_string(&full_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    error_recorder.record(
+                        file_path.to_path_buf(),
+                        format!("Failed to read file '{}': {e}", full_path.display()),
+                    );
+                    continue;
+                }
+            };
+
+            let ast = match MarkdownParser::parse(&content) {
+                Ok(a) => a,
+                Err(e) => {
+                    error_recorder.record(
+                        file_path.to_path_buf(),
+                        format!("Failed to parse markdown for '{}': {e}", full_path.display()),
+                    );
+                    continue;
+                }
+            };
 
             let content_hash = compute_bytes_hash(content.as_bytes());
             let rel_path_str = normalize_relative_path(file_path, Some(self.root));
             let doc_id = compute_bytes_hash(rel_path_str.as_bytes());
 
-            let ast = MarkdownParser::parse(&content)?;
             let doc = Document {
                 id: doc_id.clone(),
                 file_path: rel_path_str.clone(),
@@ -332,6 +459,12 @@ impl<'a> IndexCoordinator<'a> {
             new_docs.push(doc);
             all_chunks.extend(doc_chunks);
             all_hierarchy_edges.extend(doc_h_edges);
+
+            if *is_added {
+                successful_added += 1;
+            } else {
+                successful_modified.push((*file_path).clone());
+            }
         }
 
         // 3. Resolve explicit cross-document and anchor links across all chunks
@@ -372,8 +505,8 @@ impl<'a> IndexCoordinator<'a> {
             StorageWriter::delete_document_tx(&tx, &doc.id)?;
         }
 
-        // 5b. Delete modified documents (cascade deletes previous chunks, edges, vec_chunks)
-        for path in &delta.modified {
+        // 5b. Delete modified documents that were successfully re-indexed
+        for path in &successful_modified {
             let rel_path_str = normalize_relative_path(path, Some(self.root));
             let doc_id = compute_bytes_hash(rel_path_str.as_bytes());
             StorageWriter::delete_document_tx(&tx, &doc_id)?;
@@ -385,10 +518,14 @@ impl<'a> IndexCoordinator<'a> {
         }
 
         // 5d. Insert all chunks
-        StorageWriter::insert_chunks_batch_tx(&tx, &all_chunks)?;
+        if !all_chunks.is_empty() {
+            StorageWriter::insert_chunks_batch_tx(&tx, &all_chunks)?;
+        }
 
         // 5e. Insert all edges
-        StorageWriter::insert_edges_batch_tx(&tx, &all_edges)?;
+        if !all_edges.is_empty() {
+            StorageWriter::insert_edges_batch_tx(&tx, &all_edges)?;
+        }
 
         // 5f. Insert all vector embeddings
         let vectors: Vec<(&str, &[f32; EMBEDDING_DIM])> = all_chunks
@@ -396,19 +533,26 @@ impl<'a> IndexCoordinator<'a> {
             .zip(embeddings.iter())
             .map(|(c, emb)| (c.id.as_str(), emb))
             .collect();
-        StorageWriter::insert_vectors_batch_tx(&tx, &vectors)?;
+        if !vectors.is_empty() {
+            StorageWriter::insert_vectors_batch_tx(&tx, &vectors)?;
+        }
 
         // 5g. Commit transaction atomically
         tx.commit()?;
 
+        // 6. Write or clear .memex/errors.log
+        error_recorder.sync()?;
+
         let stats = IndexStats {
-            files_added: delta.added.len(),
-            files_modified: delta.modified.len(),
+            files_added: successful_added,
+            files_modified: successful_modified.len(),
             files_removed: delta.removed.len(),
             files_unchanged: delta.unchanged.len(),
+            files_failed: error_recorder.errors().len(),
             chunks_indexed: all_chunks.len(),
             edges_created: all_edges.len(),
             vectors_indexed: vectors.len(),
+            errors: error_recorder.errors().to_vec(),
             duration: start_time.elapsed(),
         };
 
@@ -975,5 +1119,181 @@ mod tests {
         let results = db.reader().search_knn(&query_emb, 5).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].chunk.doc_id, compute_bytes_hash(b"docs/auth.md"));
+    }
+
+    #[test]
+    fn test_error_log_recorder_lifecycle() {
+        let temp_dir = TempDir::new().unwrap();
+        let memex_dir = temp_dir.path().join(".memex");
+        let log_file = memex_dir.join("errors.log");
+
+        let mut recorder = ErrorLogRecorder::new(temp_dir.path());
+        assert_eq!(recorder.log_path(), &log_file);
+        assert!(!recorder.has_errors());
+        assert_eq!(recorder.errors().len(), 0);
+
+        // Syncing with no errors does not create file
+        recorder.sync().unwrap();
+        assert!(!log_file.exists());
+
+        // Record errors
+        recorder.record(PathBuf::from("docs/bad1.md"), "Invalid UTF-8 byte sequence");
+        recorder.record(PathBuf::from("docs/bad2.md"), "Syntax error: unclosed tag");
+
+        assert!(recorder.has_errors());
+        assert_eq!(recorder.errors().len(), 2);
+        assert_eq!(recorder.errors()[0].file_path, PathBuf::from("docs/bad1.md"));
+        assert_eq!(recorder.errors()[0].message, "Invalid UTF-8 byte sequence");
+
+        // Sync writes the log file
+        recorder.sync().unwrap();
+        assert!(log_file.exists());
+
+        let log_content = fs::read_to_string(&log_file).unwrap();
+        assert!(log_content.contains("docs/bad1.md"));
+        assert!(log_content.contains("Invalid UTF-8 byte sequence"));
+        assert!(log_content.contains("docs/bad2.md"));
+        assert!(log_content.contains("Syntax error: unclosed tag"));
+
+        // Clean recorder clears/deletes the log file
+        let clean_recorder = ErrorLogRecorder::new(temp_dir.path());
+        clean_recorder.sync().unwrap();
+        assert!(!log_file.exists(), "errors.log should be deleted after a clean run");
+    }
+
+    #[test]
+    fn test_coordinator_error_isolation_with_invalid_utf8_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut db = setup_test_db();
+
+        let valid_file = create_test_file(
+            temp_dir.path(),
+            "docs/valid.md",
+            b"# Valid Document\n\nThis markdown is valid and should be indexed.\n",
+        );
+
+        // Create an invalid file with invalid UTF-8 byte sequence
+        let invalid_file = create_test_file(
+            temp_dir.path(),
+            "docs/corrupt.md",
+            &[0xFF, 0xFE, 0xFD, 0x80, 0x81, 0x00],
+        );
+
+        let scanned = vec![valid_file.clone(), invalid_file.clone()];
+        let delta = DeltaClassifier::compute_with_root(temp_dir.path(), &scanned, &db).unwrap();
+        assert_eq!(delta.added.len(), 2);
+
+        let stats = IndexCoordinator::process_delta_with_root(
+            temp_dir.path(),
+            &delta,
+            &mut db,
+            &dummy_embedder(),
+        )
+        .expect("Coordinator should succeed with error isolation");
+
+        // 1 file added, 1 file failed
+        assert_eq!(stats.files_added, 1);
+        assert_eq!(stats.files_failed, 1);
+        assert!(stats.has_errors());
+        assert_eq!(stats.errors.len(), 1);
+        assert_eq!(stats.errors[0].file_path, invalid_file);
+        assert!(stats.errors[0].message.contains("Failed to read file"));
+        assert_eq!(stats.chunks_indexed, 2);
+        assert_eq!(stats.vectors_indexed, 2);
+
+        // Verify .memex/errors.log exists and contains the failure
+        let errors_log_path = temp_dir.path().join(".memex").join("errors.log");
+        assert!(errors_log_path.exists());
+        let log_content = fs::read_to_string(&errors_log_path).unwrap();
+        assert!(log_content.contains("corrupt.md"));
+        assert!(log_content.contains("Failed to read file"));
+
+        // Verify valid document exists in DB
+        let docs = db.reader().get_all_documents().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].file_path, "docs/valid.md");
+        assert_eq!(docs[0].title, Some("Valid Document".to_string()));
+
+        // Now fix the corrupted file and re-index
+        create_test_file(
+            temp_dir.path(),
+            "docs/corrupt.md",
+            b"# Fixed Corrupt File\n\nNow this file is valid markdown.\n",
+        );
+
+        let delta2 = DeltaClassifier::compute_with_root(temp_dir.path(), &scanned, &db).unwrap();
+        assert_eq!(delta2.added.len(), 1);
+        assert_eq!(delta2.unchanged.len(), 1);
+
+        let stats2 = IndexCoordinator::process_delta_with_root(
+            temp_dir.path(),
+            &delta2,
+            &mut db,
+            &dummy_embedder(),
+        )
+        .unwrap();
+
+        assert_eq!(stats2.files_added, 1);
+        assert_eq!(stats2.files_failed, 0);
+        assert!(!stats2.has_errors());
+        assert_eq!(stats2.errors.len(), 0);
+
+        // .memex/errors.log should now be removed since the run was clean
+        assert!(!errors_log_path.exists(), "errors.log should be deleted after a clean run");
+
+        // Both docs should now be in DB
+        let docs2 = db.reader().get_all_documents().unwrap();
+        assert_eq!(docs2.len(), 2);
+    }
+
+    #[test]
+    fn test_coordinator_modified_file_error_isolation() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut db = setup_test_db();
+
+        let file = create_test_file(
+            temp_dir.path(),
+            "doc.md",
+            b"# Initial Doc\n\nInitial content.\n",
+        );
+
+        let scanned = vec![file.clone()];
+        let delta1 = DeltaClassifier::compute_with_root(temp_dir.path(), &scanned, &db).unwrap();
+        IndexCoordinator::process_delta_with_root(
+            temp_dir.path(),
+            &delta1,
+            &mut db,
+            &dummy_embedder(),
+        )
+        .unwrap();
+
+        let initial_doc = db.reader().get_document_by_path("doc.md").unwrap().unwrap();
+        assert_eq!(initial_doc.title, Some("Initial Doc".to_string()));
+
+        // Corrupt the modified file with invalid UTF-8
+        create_test_file(temp_dir.path(), "doc.md", &[0xFF, 0xFE, 0xFD]);
+
+        let delta2 = DeltaClassifier::compute_with_root(temp_dir.path(), &scanned, &db).unwrap();
+        assert_eq!(delta2.modified.len(), 1);
+
+        let stats2 = IndexCoordinator::process_delta_with_root(
+            temp_dir.path(),
+            &delta2,
+            &mut db,
+            &dummy_embedder(),
+        )
+        .unwrap();
+
+        assert_eq!(stats2.files_modified, 0);
+        assert_eq!(stats2.files_failed, 1);
+        assert!(stats2.has_errors());
+
+        // Verify previous doc was preserved because new version failed
+        let preserved_doc = db.reader().get_document_by_path("doc.md").unwrap().unwrap();
+        assert_eq!(preserved_doc.title, Some("Initial Doc".to_string()));
+
+        // errors.log should be present
+        let errors_log = temp_dir.path().join(".memex").join("errors.log");
+        assert!(errors_log.exists());
     }
 }

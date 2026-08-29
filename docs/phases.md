@@ -200,7 +200,7 @@ Orchestrate the ingestion, delta comparison, transaction commit, and terminal re
   - **Deliverable:** `IndexCoordinator::process_delta(delta: IndexDelta, ...) -> Result<IndexStats>`.
   - **Verification:** Integration test running indexing on a directory and verifying database consistency.
 
-- [ ] **TASK-6.3: Error Log Recorder (`.memex/errors.log`)**
+- [x] **TASK-6.3: Error Log Recorder (`.memex/errors.log`)**
   - **Description:** Capture non-fatal per-file errors (e.g. unparseable markdown, invalid encoding) without aborting the overall index. Write summary to `.memex/errors.log` and delete log if index is clean.
   - **Deliverable:** Error logging helper integrated into coordinator.
   - **Verification:** Test verifying an unreadable file is logged and remaining valid files are indexed.
