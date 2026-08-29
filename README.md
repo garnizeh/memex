@@ -2,10 +2,13 @@
 
 > **Local, Offline Documentation Context Server (MCP) for LLMs & AI Coding Agents**
 
-[![Status: Production Ready (MVP)](https://img.shields.io/badge/Status-MVP%20Ready-brightgreen.svg)](#memex)
+[![CI Status](https://github.com/garnizeh/memex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/garnizeh/memex/actions/workflows/ci.yml)
+[![Rust 2024](https://img.shields.io/badge/Rust-2024%20Edition-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#-quick-start)
 [![Tests](https://img.shields.io/badge/Tests-248%20Passing-success.svg)](#-testing--benchmarks)
-[![Rust](https://img.shields.io/badge/Rust-2024%20Edition-orange.svg)](https://www.rust-lang.org/)
+[![Token Reduction](https://img.shields.io/badge/Token%20Reduction-98.2%25-brightgreen.svg)](docs/benchmarks/benchmark-report.md)
 
 **Memex** is a high-performance, 100% offline [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server written in Rust (2024 Edition). It serves as a semantic and structural gateway to project documentation, drastically reducing token consumption, context window pollution, and query latency for AI assistants like Claude Code, Cursor, and Antigravity IDE.
 
