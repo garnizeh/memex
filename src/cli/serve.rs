@@ -13,38 +13,42 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// Server context holding the database connection and embedding engine for the MCP server.
+/// Server context holding the project path (if known), optional database connection, and embedding engine for the MCP server.
 #[derive(Debug, Clone)]
 pub struct McpServer {
-    db: Arc<Mutex<Database>>,
+    target_path: Option<std::path::PathBuf>,
+    db: Arc<Mutex<Option<Database>>>,
     engine: Arc<EmbeddingEngine>,
 }
 
 impl McpServer {
-    /// Creates a new `McpServer` targeting the given project path.
+    /// Creates a new `McpServer` targeting the given optional project path.
     ///
-    /// Resolves the project root, verifies that `.memex/memex.db` exists,
-    /// opens SQLite in read-only mode, and initializes the ONNX embedding engine.
-    pub fn new(project_path: impl AsRef<Path>) -> Result<Self> {
-        let root = find_project_root(project_path.as_ref())?;
-        let mut db_path = root.join(".memex").join("memex.db");
-        if !db_path.exists() {
-            let alt_path = root.join(".memex").join("index.db");
-            if alt_path.exists() {
-                db_path = alt_path;
-            } else {
-                return Err(MemexError::NotInitialized {
-                    path: project_path.as_ref().display().to_string(),
-                });
-            }
-        }
-
-        let db = Database::open_readonly(&db_path)?;
+    /// The database connection is resolved lazily upon tool calls, allowing the MCP server
+    /// to always initialize and respond cleanly even when launched outside an initialized workspace.
+    pub fn new(project_path: Option<&Path>) -> Result<Self> {
         let assets = ModelManager::ensure_model_assets()?;
         let engine = Arc::new(EmbeddingEngine::new(&assets)?);
 
+        let mut initial_db = None;
+        if let Some(path) = project_path {
+            if let Ok(root) = find_project_root(path)
+                && let db_path = root.join(".memex").join("memex.db")
+                && let Ok(db) = Database::open_readonly(&db_path)
+            {
+                initial_db = Some(db);
+            }
+        } else if let Ok(cwd) = std::env::current_dir()
+            && let Ok(root) = find_project_root(&cwd)
+            && let db_path = root.join(".memex").join("memex.db")
+            && let Ok(db) = Database::open_readonly(&db_path)
+        {
+            initial_db = Some(db);
+        }
+
         Ok(Self {
-            db: Arc::new(Mutex::new(db)),
+            target_path: project_path.map(|p| p.to_path_buf()),
+            db: Arc::new(Mutex::new(initial_db)),
             engine,
         })
     }
@@ -52,14 +56,41 @@ impl McpServer {
     /// Creates an `McpServer` with an explicitly provided `Database` and `EmbeddingEngine` (useful for testing).
     pub fn with_components(db: Database, engine: Arc<EmbeddingEngine>) -> Self {
         Self {
-            db: Arc::new(Mutex::new(db)),
+            target_path: None,
+            db: Arc::new(Mutex::new(Some(db))),
             engine,
         }
     }
 
+    /// Resolves or refreshes the database connection targeting the nearest initialized project root.
+    fn get_or_open_db(&self, project_path_hint: Option<&Path>) -> Result<Database> {
+        let candidate_path = project_path_hint.or(self.target_path.as_deref());
+
+        let root = if let Some(path) = candidate_path {
+            find_project_root(path)?
+        } else {
+            let cwd = std::env::current_dir()?;
+            find_project_root(&cwd)?
+        };
+
+        let mut db_path = root.join(".memex").join("memex.db");
+        if !db_path.exists() {
+            let alt_path = root.join(".memex").join("index.db");
+            if alt_path.exists() {
+                db_path = alt_path;
+            } else {
+                return Err(MemexError::NotInitialized {
+                    path: root.display().to_string(),
+                });
+            }
+        }
+
+        Database::open_readonly(&db_path)
+    }
+
     /// Handles an incoming JSON-RPC request synchronously.
     pub fn handle_request_sync(&self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
-        // 1. Check protocol handshake / tools listing first
+        // 1. Check protocol handshake / tools listing first (always works even if uninitialized)
         if let Some(resp) = handle_handshake_or_tools(&req) {
             return resp;
         }
@@ -75,11 +106,40 @@ impl McpServer {
 
             let tool_args = params_val.and_then(|p| p.get("arguments")).cloned();
 
-            let db_guard = match self.db.lock() {
+            let project_path_hint = tool_args
+                .as_ref()
+                .and_then(|a| {
+                    a.get("project_path")
+                        .or_else(|| a.get("projectPath"))
+                        .or_else(|| a.get("path"))
+                })
+                .and_then(|p| p.as_str())
+                .map(Path::new);
+
+            let mut db_guard = match self.db.lock() {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            let reader = StorageReader::new(db_guard.conn());
+
+            // If we don't have a cached DB or if a specific path hint was provided, attempt to resolve/open it
+            if db_guard.is_none() || project_path_hint.is_some() {
+                match self.get_or_open_db(project_path_hint) {
+                    Ok(new_db) => {
+                        *db_guard = Some(new_db);
+                    }
+                    Err(err) => {
+                        return Some(JsonRpcResponse::success(
+                            id,
+                            serde_json::to_value(crate::mcp::types::CallToolResult::error(format!(
+                                "Memex project not initialized: {err}. Please run 'memex init' in your repository, or provide a valid 'project_path' parameter."
+                            ))).unwrap_or_default(),
+                        ));
+                    }
+                }
+            }
+
+            let db_ref = db_guard.as_ref().unwrap();
+            let reader = StorageReader::new(db_ref.conn());
 
             let result = match tool_name {
                 Some("search_documentation") => {
@@ -150,15 +210,19 @@ impl RequestHandler for McpServer {
 ///
 /// Starts the JSON-RPC stdio transport loop reading from stdin and writing to stdout.
 /// Diagnostics, progress, and logs are strictly sent to stderr.
-pub async fn run_serve(mcp: bool) -> Result<()> {
+pub async fn run_serve(target_path: Option<&Path>, mcp: bool) -> Result<()> {
     if !mcp {
         tracing::warn!(target: "mcp", "Serve called without --mcp flag; defaulting to MCP stdio mode");
     }
 
-    let cwd = std::env::current_dir()?;
-    let server = McpServer::new(&cwd)?;
+    let server = McpServer::new(target_path)?;
 
-    tracing::info!(target: "mcp", "Memex MCP server running on stdio for root: {}", cwd.display());
+    if let Some(path) = target_path {
+        tracing::info!(target: "mcp", "Memex MCP server running on stdio for target path: {}", path.display());
+    } else {
+        tracing::info!(target: "mcp", "Memex MCP server running on stdio (dynamic workspace detection)");
+    }
+
     McpTransport::listen(server).await?;
     tracing::info!(target: "mcp", "Memex MCP server shutdown cleanly");
     Ok(())
@@ -373,10 +437,32 @@ mod tests {
     #[test]
     fn test_mcp_server_new_uninitialized_project() {
         let empty_temp = TempDir::new().unwrap();
-        let err = McpServer::new(empty_temp.path()).unwrap_err();
-        match err {
-            MemexError::NotInitialized { .. } => {}
-            other => panic!("Expected NotInitialized error, got: {:?}", other),
-        }
+        let server = McpServer::new(Some(empty_temp.path())).unwrap();
+
+        // Initialize handshake succeeds
+        let init_req = JsonRpcRequest::new(1, "initialize", Some(json!({})));
+        let init_resp = server.handle_request_sync(init_req).unwrap();
+        assert_eq!(init_resp.id, Some(json!(1)));
+        assert!(init_resp.error.is_none());
+
+        // tools/call returns graceful error result
+        let call_req = JsonRpcRequest::new(
+            2,
+            "tools/call",
+            Some(json!({
+                "name": "search_documentation",
+                "arguments": { "query": "auth" }
+            })),
+        );
+        let call_resp = server.handle_request_sync(call_req).unwrap();
+        assert_eq!(call_resp.id, Some(json!(2)));
+        let res = call_resp.result.unwrap();
+        assert_eq!(res["isError"], true);
+        assert!(
+            res["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Memex project not initialized")
+        );
     }
 }
