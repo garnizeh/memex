@@ -190,7 +190,7 @@ Orchestrate the ingestion, delta comparison, transaction commit, and terminal re
 
 ### Tasks
 
-- [ ] **TASK-6.1: Incremental Delta Engine (`src/cli/index.rs`)**
+- [x] **TASK-6.1: Incremental Delta Engine (`src/cli/index.rs`)**
   - **Description:** Query stored `(file_path, content_hash)` from `documents` table. Compare with current disk scan to classify files into `Added`, `Modified`, `Removed`, and `Unchanged`.
   - **Deliverable:** `DeltaClassifier::compute(scanned: &[PathBuf], db: &Database) -> Result<IndexDelta>`.
   - **Verification:** Unit tests verifying all 4 delta states with simulated disk/DB states.
