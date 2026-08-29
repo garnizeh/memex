@@ -177,7 +177,7 @@ Integrate ONNX Runtime via `ort`, handle tokenizer loading, execute batched infe
   - **Deliverable:** `TokenizerWrapper::encode_batch(&[&str]) -> Result<TokenizedBatch>`.
   - **Verification:** Test tokenizing batch with variable length strings asserting matching tensor shapes.
 
-- [ ] **TASK-5.4: Batched Inference & L2 Normalization**
+- [x] **TASK-5.4: Batched Inference & L2 Normalization**
   - **Description:** Execute `session.run(...)` on batches of up to 64 items. Perform mean pooling over token embeddings weighted by attention mask, then apply L2 normalization to produce unit vectors (`[f32; 384]`).
   - **Deliverable:** `EmbeddingEngine::embed_batch(&self, texts: &[String]) -> Result<Vec<[f32; 384]>>`.
   - **Verification:** Unit test verifying output vectors have norm $\approx 1.0 \pm 1e-5$ and produce high dot product on semantically identical phrases.

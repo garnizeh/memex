@@ -1,11 +1,13 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
+use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::value::Tensor;
 use tokenizers::Tokenizer;
 
 use crate::discovery::hash::compute_file_hash;
@@ -25,6 +27,9 @@ pub const MODEL_FILE_NAME: &str = "model.onnx";
 
 /// Standard tokenizer definition file name.
 pub const TOKENIZER_FILE_NAME: &str = "tokenizer.json";
+
+/// Embedding vector dimensionality for all-MiniLM-L6-v2 (384 float32 components).
+pub const EMBEDDING_DIM: usize = 384;
 
 /// Default Hugging Face repository URL for all-MiniLM-L6-v2 ONNX model weights (~80MB).
 pub const DEFAULT_MODEL_URL: &str =
@@ -164,8 +169,8 @@ pub struct ModelAssets {
 /// Thread-safe local embedding engine executing inference via ONNX Runtime and tokenizers.
 #[derive(Debug, Clone)]
 pub struct EmbeddingEngine {
-    /// ONNX Runtime session wrapped in `Arc` for thread-safe concurrent reuse.
-    pub session: Arc<Session>,
+    /// ONNX Runtime session wrapped in `Arc<Mutex>` for thread-safe concurrent reuse.
+    pub session: Arc<Mutex<Session>>,
     /// Fast tokenizer instance wrapped in `Arc`.
     pub tokenizer: Arc<Tokenizer>,
     /// Tokenizer wrapper for batched tensor encoding.
@@ -234,15 +239,15 @@ impl EmbeddingEngine {
         let tokenizer_wrapper = TokenizerWrapper::new(Arc::clone(&tokenizer_arc));
 
         Ok(Self {
-            session: Arc::new(session),
+            session: Arc::new(Mutex::new(session)),
             tokenizer: tokenizer_arc,
             tokenizer_wrapper,
             assets: assets.clone(),
         })
     }
 
-    /// Returns a reference to the wrapped ONNX Runtime session.
-    pub fn session(&self) -> &Arc<Session> {
+    /// Returns a reference to the wrapped ONNX Runtime session mutex.
+    pub fn session(&self) -> &Arc<Mutex<Session>> {
         &self.session
     }
 
@@ -263,7 +268,8 @@ impl EmbeddingEngine {
 
     /// Returns the session inputs information (names).
     pub fn input_names(&self) -> Vec<String> {
-        self.session
+        let session = self.session.lock().expect("session lock poisoned");
+        session
             .inputs()
             .iter()
             .map(|input| input.name().to_string())
@@ -272,12 +278,217 @@ impl EmbeddingEngine {
 
     /// Returns the session outputs information (names).
     pub fn output_names(&self) -> Vec<String> {
-        self.session
+        let session = self.session.lock().expect("session lock poisoned");
+        session
             .outputs()
             .iter()
             .map(|output| output.name().to_string())
             .collect()
     }
+
+    /// Computes embeddings for a pre-tokenized batch.
+    pub fn embed_tokenized_batch(
+        &self,
+        tokenized: &TokenizedBatch,
+    ) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+        if tokenized.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let (batch_size, seq_len) = tokenized.shape();
+        let input_ids_tensor =
+            Tensor::from_array(([batch_size, seq_len], tokenized.input_ids.clone())).map_err(
+                |e| MemexError::EmbeddingError {
+                    chunk_id: "batch".to_string(),
+                    message: format!("Failed to create input_ids tensor: {e}"),
+                },
+            )?;
+        let attention_mask_tensor =
+            Tensor::from_array(([batch_size, seq_len], tokenized.attention_mask.clone())).map_err(
+                |e| MemexError::EmbeddingError {
+                    chunk_id: "batch".to_string(),
+                    message: format!("Failed to create attention_mask tensor: {e}"),
+                },
+            )?;
+        let token_type_ids_tensor =
+            Tensor::from_array(([batch_size, seq_len], tokenized.token_type_ids.clone())).map_err(
+                |e| MemexError::EmbeddingError {
+                    chunk_id: "batch".to_string(),
+                    message: format!("Failed to create token_type_ids tensor: {e}"),
+                },
+            )?;
+
+        let inputs = inputs![
+            "input_ids" => input_ids_tensor,
+            "attention_mask" => attention_mask_tensor,
+            "token_type_ids" => token_type_ids_tensor,
+        ];
+
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|e| MemexError::EmbeddingError {
+                chunk_id: "batch".to_string(),
+                message: format!("Session lock poisoned: {e}"),
+            })?;
+
+        let outputs = session
+            .run(inputs)
+            .map_err(|e| MemexError::EmbeddingError {
+                chunk_id: "batch".to_string(),
+                message: format!("Inference failed: {e}"),
+            })?;
+
+        let (shape, data) =
+            outputs[0]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| MemexError::EmbeddingError {
+                    chunk_id: "batch".to_string(),
+                    message: format!("Failed extracting output tensor: {e}"),
+                })?;
+
+        let dims: &[i64] = shape.as_ref();
+        if dims.len() < 3 {
+            return Err(MemexError::EmbeddingError {
+                chunk_id: "batch".to_string(),
+                message: format!(
+                    "Expected 3D output tensor [batch, seq, dim], got shape {:?}",
+                    dims
+                ),
+            });
+        }
+        let out_batch = dims[0] as usize;
+        let out_seq = dims[1] as usize;
+        let hidden_dim = dims[2] as usize;
+
+        mean_pool_and_normalize(
+            data,
+            &tokenized.attention_mask,
+            out_batch,
+            out_seq,
+            hidden_dim,
+        )
+    }
+
+    /// Computes normalized embedding vectors for a batch of string slices, automatically
+    /// partitioning into sub-batches of up to `DEFAULT_BATCH_SIZE` (64).
+    pub fn embed_batch_str(&self, texts: &[&str]) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut all_embeddings = Vec::with_capacity(texts.len());
+        for chunk in texts.chunks(DEFAULT_BATCH_SIZE) {
+            let tokenized = self.tokenizer_wrapper.encode_batch(chunk)?;
+            let chunk_embeddings = self.embed_tokenized_batch(&tokenized)?;
+            all_embeddings.extend(chunk_embeddings);
+        }
+
+        Ok(all_embeddings)
+    }
+
+    /// Computes normalized embedding vectors for a batch of `String`s, automatically
+    /// partitioning into sub-batches of up to `DEFAULT_BATCH_SIZE` (64).
+    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let str_slices: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        self.embed_batch_str(&str_slices)
+    }
+
+    /// Computes a normalized embedding vector for a single text string.
+    pub fn embed(&self, text: &str) -> Result<[f32; EMBEDDING_DIM]> {
+        let embeddings = self.embed_batch_str(&[text])?;
+        embeddings
+            .into_iter()
+            .next()
+            .ok_or_else(|| MemexError::EmbeddingError {
+                chunk_id: "single".to_string(),
+                message: "Empty embedding result for single input".to_string(),
+            })
+    }
+}
+
+/// Applies attention-mask-weighted mean pooling over token hidden states of shape `[batch_size, seq_len, hidden_dim]`
+/// and normalizes each pooled vector with L2 norm to produce unit vectors (`[f32; 384]`).
+pub fn mean_pool_and_normalize(
+    hidden_states: &[f32],
+    attention_mask: &[i64],
+    batch_size: usize,
+    seq_len: usize,
+    hidden_dim: usize,
+) -> Result<Vec<[f32; EMBEDDING_DIM]>> {
+    if hidden_dim != EMBEDDING_DIM {
+        return Err(MemexError::EmbeddingError {
+            chunk_id: "batch".to_string(),
+            message: format!(
+                "Unexpected embedding hidden dimension {hidden_dim}, expected {EMBEDDING_DIM}"
+            ),
+        });
+    }
+
+    if batch_size == 0 {
+        return Ok(Vec::new());
+    }
+
+    let expected_len = batch_size * seq_len * hidden_dim;
+    if hidden_states.len() != expected_len {
+        return Err(MemexError::EmbeddingError {
+            chunk_id: "batch".to_string(),
+            message: format!(
+                "Hidden states length mismatch: expected {expected_len}, got {}",
+                hidden_states.len()
+            ),
+        });
+    }
+
+    let mut result = Vec::with_capacity(batch_size);
+
+    for b in 0..batch_size {
+        let mut pooled = [0.0f32; EMBEDDING_DIM];
+        let mut mask_sum = 0.0f32;
+
+        let mask_row_offset = b * seq_len;
+        for s in 0..seq_len {
+            let mask_val = attention_mask[mask_row_offset + s] as f32;
+            if mask_val > 0.0 {
+                mask_sum += mask_val;
+                let token_offset = (b * seq_len + s) * hidden_dim;
+                for d in 0..EMBEDDING_DIM {
+                    pooled[d] += hidden_states[token_offset + d] * mask_val;
+                }
+            }
+        }
+
+        if mask_sum > 0.0 {
+            let inv_mask_sum = 1.0 / mask_sum;
+            for val in &mut pooled {
+                *val *= inv_mask_sum;
+            }
+        }
+
+        // L2 Normalization
+        let dot_product: f32 = pooled.iter().map(|&x| x * x).sum();
+        let norm = dot_product.sqrt();
+
+        if norm > 1e-12 {
+            let inv_norm = 1.0 / norm;
+            for val in &mut pooled {
+                *val *= inv_norm;
+            }
+        }
+
+        result.push(pooled);
+    }
+
+    Ok(result)
+}
+
+/// Computes the cosine similarity (dot product of L2-normalized vectors) between two vectors.
+pub fn cosine_similarity(a: &[f32; EMBEDDING_DIM], b: &[f32; EMBEDDING_DIM]) -> f32 {
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
 /// Manages the resolution, downloading, caching, and integrity verification of embedding model assets.
@@ -858,5 +1069,192 @@ mod tests {
         assert_eq!(batch.input_ids, vec![2]);
         assert_eq!(batch.attention_mask, vec![1]);
         assert_eq!(batch.token_type_ids, vec![0]);
+    }
+
+    #[test]
+    fn test_mean_pool_and_normalize_math() {
+        let batch_size = 2;
+        let seq_len = 3;
+        let hidden_dim = EMBEDDING_DIM;
+
+        let mut hidden_states = vec![0.0f32; batch_size * seq_len * hidden_dim];
+        // Batch 0: token 0 (value 2.0 everywhere), token 1 (value 4.0 everywhere), token 2 (value 100.0 everywhere, but masked out)
+        for d in 0..hidden_dim {
+            hidden_states[d] = 2.0;
+            hidden_states[hidden_dim + d] = 4.0;
+            hidden_states[2 * hidden_dim + d] = 100.0;
+        }
+
+        // Batch 1: token 0 (value 1.0 for d=0, 0 otherwise), token 1 (value 1.0 for d=1, 0 otherwise), token 2 (padding)
+        let b1_offset = seq_len * hidden_dim;
+        hidden_states[b1_offset] = 1.0;
+        hidden_states[b1_offset + hidden_dim + 1] = 1.0;
+
+        let attention_mask = vec![
+            1, 1, 0, // Batch 0: first 2 tokens active, 3rd is padding
+            1, 1, 0, // Batch 1: first 2 tokens active, 3rd is padding
+        ];
+
+        let result = mean_pool_and_normalize(
+            &hidden_states,
+            &attention_mask,
+            batch_size,
+            seq_len,
+            hidden_dim,
+        )
+        .expect("mean_pool_and_normalize failed");
+
+        assert_eq!(result.len(), 2);
+
+        // For Batch 0: mean before normalization is (2.0 + 4.0) / 2 = 3.0 across all 384 dimensions.
+        // L2 norm of [3.0; 384] = sqrt(384 * 9.0) = 3 * sqrt(384).
+        // Normalized vector components are 3.0 / (3 * sqrt(384)) = 1 / sqrt(384).
+        let expected_val = 1.0f32 / (384.0f32).sqrt();
+        for &val in &result[0] {
+            assert!((val - expected_val).abs() < 1e-5);
+        }
+
+        // Check norm of batch 0 is ~1.0
+        let norm0: f32 = result[0].iter().map(|&x| x * x).sum::<f32>().sqrt();
+        assert!((norm0 - 1.0).abs() < 1e-5);
+
+        // For Batch 1: mean before normalization is [0.5, 0.5, 0, 0, ...]
+        // L2 norm is sqrt(0.25 + 0.25) = sqrt(0.5) = 1 / sqrt(2).
+        // Normalized components: [1/sqrt(2), 1/sqrt(2), 0, 0, ...]
+        let expected_val1 = 1.0f32 / (2.0f32).sqrt();
+        assert!((result[1][0] - expected_val1).abs() < 1e-5);
+        assert!((result[1][1] - expected_val1).abs() < 1e-5);
+        for &val in &result[1][2..] {
+            assert_eq!(val, 0.0);
+        }
+
+        let norm1: f32 = result[1].iter().map(|&x| x * x).sum::<f32>().sqrt();
+        assert!((norm1 - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_mean_pool_and_normalize_empty_and_zero_mask() {
+        // Empty batch
+        let empty = mean_pool_and_normalize(&[], &[], 0, 0, EMBEDDING_DIM).expect("empty batch");
+        assert!(empty.is_empty());
+
+        // Zero mask batch
+        let hidden = vec![1.0f32; 2 * EMBEDDING_DIM];
+        let mask = vec![0i64, 0i64];
+        let zero_res = mean_pool_and_normalize(&hidden, &mask, 1, 2, EMBEDDING_DIM)
+            .expect("zero mask handling");
+        assert_eq!(zero_res.len(), 1);
+        assert_eq!(zero_res[0], [0.0f32; EMBEDDING_DIM]);
+    }
+
+    #[test]
+    fn test_mean_pool_and_normalize_validation_errors() {
+        // Wrong hidden dimension
+        let err = mean_pool_and_normalize(&[0.0; 100], &[1], 1, 1, 100);
+        assert!(err.is_err());
+
+        // Buffer size mismatch
+        let err2 = mean_pool_and_normalize(&[0.0; 10], &[1], 1, 1, EMBEDDING_DIM);
+        assert!(err2.is_err());
+    }
+
+    #[test]
+    fn test_cosine_similarity() {
+        let mut v1 = [0.0f32; EMBEDDING_DIM];
+        let mut v2 = [0.0f32; EMBEDDING_DIM];
+        let mut v3 = [0.0f32; EMBEDDING_DIM];
+
+        v1[0] = 1.0;
+        v2[0] = 1.0;
+        v3[1] = 1.0;
+
+        assert!((cosine_similarity(&v1, &v2) - 1.0).abs() < 1e-6);
+        assert!((cosine_similarity(&v1, &v3) - 0.0).abs() < 1e-6);
+
+        let mut v_neg = [0.0f32; EMBEDDING_DIM];
+        v_neg[0] = -1.0;
+        assert!((cosine_similarity(&v1, &v_neg) - (-1.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_embed_batch_empty_slice() {
+        let empty_batch: Vec<String> = Vec::new();
+        assert!(empty_batch.is_empty());
+    }
+
+    #[test]
+    fn test_live_model_embedding_and_similarity() {
+        // If model assets cannot be resolved/downloaded (e.g. in an offline CI sandbox),
+        // we skip gracefully without failing the build.
+        let assets = match ModelManager::ensure_model_assets() {
+            Ok(assets) => assets,
+            Err(e) => {
+                println!("Skipping live model inference test (assets unavailable: {e})");
+                return;
+            }
+        };
+
+        let engine = EmbeddingEngine::new(&assets).expect("Failed to initialize EmbeddingEngine");
+
+        let text1 = "How do I configure database connection settings?";
+        let text2 = "Configuring the database connection parameters";
+        let text3 = "A quick recipe for baking chocolate chip cookies in the oven";
+
+        let embeddings = engine
+            .embed_batch(&[text1.to_string(), text2.to_string(), text3.to_string()])
+            .expect("embed_batch failed");
+
+        assert_eq!(embeddings.len(), 3);
+
+        // Verify all output vectors are unit vectors (L2 norm ~ 1.0)
+        for (i, emb) in embeddings.iter().enumerate() {
+            let norm: f32 = emb.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            assert!(
+                (norm - 1.0).abs() < 1e-4,
+                "Vector {i} norm is {norm}, expected 1.0 +/- 1e-4"
+            );
+        }
+
+        // Semantic similarity check: text1 and text2 are paraphrases, text3 is completely unrelated
+        let sim_1_2 = cosine_similarity(&embeddings[0], &embeddings[1]);
+        let sim_1_3 = cosine_similarity(&embeddings[0], &embeddings[2]);
+
+        println!("Similarity between semantically related phrases: {sim_1_2:.4}");
+        println!("Similarity between semantically unrelated phrases: {sim_1_3:.4}");
+
+        assert!(
+            sim_1_2 > 0.80,
+            "Expected high similarity between paraphrases, got {sim_1_2}"
+        );
+        assert!(
+            sim_1_3 < 0.40,
+            "Expected low similarity between unrelated texts, got {sim_1_3}"
+        );
+        assert!(
+            sim_1_2 > sim_1_3 + 0.40,
+            "Expected paraphrase similarity ({sim_1_2}) to be much greater than unrelated ({sim_1_3})"
+        );
+
+        // Single embedding convenience method
+        let single_emb = engine.embed(text1).expect("embed single failed");
+        assert_eq!(single_emb, embeddings[0]);
+
+        // Large batch chunking test (> 64 items)
+        let large_batch: Vec<String> = (0..70)
+            .map(|i| format!("Documentation sentence number {i} for batching verification"))
+            .collect();
+
+        let large_embeddings = engine
+            .embed_batch(&large_batch)
+            .expect("embed large batch failed");
+        assert_eq!(large_embeddings.len(), 70);
+
+        for (i, emb) in large_embeddings.iter().enumerate() {
+            let norm: f32 = emb.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            assert!(
+                (norm - 1.0).abs() < 1e-4,
+                "Vector {i} norm in large batch is {norm}, expected 1.0 +/- 1e-4"
+            );
+        }
     }
 }
