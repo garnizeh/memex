@@ -319,7 +319,7 @@ Build fixture corpus, unit/integration suites, Criterion benchmarks, and CI effi
   - **Deliverable:** Benchmark suite run via `cargo bench`.
   - **Verification:** `cargo bench --no-run` compiles and runs successfully.
 
-- [ ] **TASK-9.5: CI Token Reduction Efficiency Gate (`tests/test_token_reduction_gate.rs`)**
+- [x] **TASK-9.5: CI Token Reduction Efficiency Gate (`tests/test_token_reduction_gate.rs`)**
   - **Description:** Implement `gate_token_reduction_minimum_70_percent` test using `tiktoken-rs` comparing naive full-file token counts vs `search_documentation` output. Gate fails build if reduction < 70%.
   - **Deliverable:** CI gate test matching Section 13.5.1 of `architecture.md`.
   - **Verification:** Run `cargo test --test test_token_reduction_gate -- --ignored` and assert token reduction $\ge 70\%$.
