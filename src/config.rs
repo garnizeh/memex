@@ -32,7 +32,7 @@ impl MemexConfig {
     /// If the file does not exist, or if it is malformed, this returns the default configuration
     /// (`MemexConfig::default()`) and emits a warning log when malformed.
     pub fn load_or_default(root: &Path) -> Self {
-        let config_path = if root.is_file() && root.file_name().map_or(false, |f| f == Self::FILE_NAME) {
+        let config_path = if root.is_file() && root.file_name().is_some_and(|f| f == Self::FILE_NAME) {
             root.to_path_buf()
         } else {
             root.join(Self::FILE_NAME)
