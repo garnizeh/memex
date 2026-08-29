@@ -6,9 +6,22 @@
 [![Rust 2024](https://img.shields.io/badge/Rust-2024%20Edition-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-8A2BE2.svg)](https://modelcontextprotocol.io/)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#-quick-start)
 [![Tests](https://img.shields.io/badge/Tests-248%20Passing-success.svg)](#-testing--benchmarks)
 [![Token Reduction](https://img.shields.io/badge/Token%20Reduction-98.2%25-brightgreen.svg)](docs/benchmarks/benchmark-report.md)
+
+[![Linux](https://img.shields.io/badge/Linux-supported-blue.svg?logo=linux&logoColor=white)](#-quick-start)
+[![macOS](https://img.shields.io/badge/macOS-supported-blue.svg?logo=apple&logoColor=white)](#-quick-start)
+[![Windows](https://img.shields.io/badge/Windows-supported-blue.svg?logo=windows&logoColor=white)](#-quick-start)
+
+[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-8A2BE2.svg?logo=anthropic&logoColor=white)](#2-auto-register-with-ai-agents)
+[![Cursor](https://img.shields.io/badge/Cursor-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+[![Antigravity](https://img.shields.io/badge/Antigravity-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+[![Gemini](https://img.shields.io/badge/Gemini_CLI-supported-8A2BE2.svg?logo=google&logoColor=white)](#2-auto-register-with-ai-agents)
+[![OpenCode](https://img.shields.io/badge/OpenCode-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+[![Codex](https://img.shields.io/badge/Codex_CLI-supported-8A2BE2.svg?logo=openai&logoColor=white)](#2-auto-register-with-ai-agents)
+[![Zed](https://img.shields.io/badge/Zed_AI-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+
+**The fastest local documentation context engine · surgical retrieval · built for how agents actually work · 100% offline**
 
 **Memex** is a high-performance, 100% offline [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server written in Rust (2024 Edition). It serves as a semantic and structural gateway to project documentation, drastically reducing token consumption, context window pollution, and query latency for AI assistants like Claude Code, Cursor, and Antigravity IDE.
 
