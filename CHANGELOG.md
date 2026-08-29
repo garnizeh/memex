@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/garnizeh/memex/compare/memex-v0.2.0...memex-v0.3.0) (2026-08-29)
+
+
+### Features
+
+* **installer:** add one-line curl and powershell installers and validate benchmark retrieval quality ([9451bc6](https://github.com/garnizeh/memex/commit/9451bc61652c90cec5c4a98d9bfeb56340ab3a04))
+
+
+### Bug Fixes
+
+* **bench:** support index.db fallback in run_empirical_benchmark ([76e7034](https://github.com/garnizeh/memex/commit/76e7034e957a56592a69a4b38e61f17a9d7786c2))
+
 ## [0.2.0](https://github.com/garnizeh/memex/compare/memex-v0.1.0...memex-v0.2.0) (2026-08-29)
 
 
