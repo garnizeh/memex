@@ -50,7 +50,7 @@ Establish the core repository structure, domain structs, error handling, and pro
   - **Deliverable:** `MemexError` with formatted error messages and `From` conversions for `rusqlite::Error`, `std::io::Error`, `serde_json::Error`, etc.
   - **Verification:** Unit tests verifying error formatting and error conversions.
 
-- [ ] **TASK-1.4: Project Configuration Parser (`src/config.rs`)**
+- [x] **TASK-1.4: Project Configuration Parser (`src/config.rs`)**
   - **Description:** Implement `MemexConfig` parser reading optional `memex.json` from project root with `exclude: Vec<String>` and `include: Vec<String>` fields. Gracefully handle missing/malformed config by returning defaults.
   - **Deliverable:** `src/config.rs` with `MemexConfig::load_or_default(root: &Path) -> MemexConfig`.
   - **Verification:** Unit tests verifying: (1) valid JSON parsing, (2) missing file returns defaults, (3) malformed JSON warns and returns defaults.
@@ -358,7 +358,7 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 
 | Phase | Description | Task Count | Status |
 | :--- | :--- | :---: | :---: |
-| **Phase 1** | Foundations, Domain Models & Error Handling | 4 | In Progress (3/4) |
+| **Phase 1** | Foundations, Domain Models & Error Handling | 4 | Completed (4/4) |
 | **Phase 2** | Storage & Database Layer (`src/storage/`) | 6 | Pending |
 | **Phase 3** | File Discovery & Filtering (`src/discovery/`) | 4 | Pending |
 | **Phase 4** | Markdown Ingestion & Contextual Chunking (`src/ingestion/`) | 5 | Pending |
@@ -368,4 +368,4 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 | **Phase 8** | Agent Auto-Installer (`src/installer/`, `install`) | 5 | Pending |
 | **Phase 9** | Test Suite, Benchmarks & Efficiency Gate | 5 | Pending |
 | **Phase 10** | Polishing, Packaging & Release Verification | 4 | Pending |
-| **Total** | **Full MVP Scope** | **47 Tasks** | **3 / 47 Completed** |
+| **Total** | **Full MVP Scope** | **47 Tasks** | **4 / 47 Completed** |
