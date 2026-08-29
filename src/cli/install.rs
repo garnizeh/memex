@@ -440,11 +440,13 @@ mod tests {
         assert_eq!(installed.len(), 3);
         assert!(home_dir.join(".claude.json").exists());
         assert!(home_dir.join(".cursor").join("mcp.json").exists());
-        assert!(home_dir
-            .join(".gemini")
-            .join("antigravity-ide")
-            .join("mcp_config.json")
-            .exists());
+        assert!(
+            home_dir
+                .join(".gemini")
+                .join("antigravity-ide")
+                .join("mcp_config.json")
+                .exists()
+        );
     }
 
     #[test]
@@ -472,11 +474,13 @@ mod tests {
         assert_eq!(installed.len(), 3);
         assert!(home_dir.join(".claude.json").exists());
         assert!(home_dir.join(".cursor").join("mcp.json").exists());
-        assert!(home_dir
-            .join(".gemini")
-            .join("antigravity-ide")
-            .join("mcp_config.json")
-            .exists());
+        assert!(
+            home_dir
+                .join(".gemini")
+                .join("antigravity-ide")
+                .join("mcp_config.json")
+                .exists()
+        );
     }
 
     #[test]

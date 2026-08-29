@@ -2,7 +2,7 @@
 
 > **Real-World Dogfooding Performance, Latency & Token Reduction Analysis**
 > 
-> *Benchmarked directly on the Memex codebase repository documentation (`docs/architecture.md`, `docs/phases.md`, `README.md`).*
+> *Benchmarked directly on the Memex codebase repository documentation (`docs/architecture/architecture.md`, `docs/roadmap/mvp-roadmap.md`, `README.md`).*
 
 ---
 
@@ -41,16 +41,16 @@ Below are the empirical measurements across 10 real-world queries asking complex
 
 | # | Developer Question | Target Document | Query Latency | Raw File Tokens | Memex MCP Tokens | Token Reduction | Top Matched Section | Validation |
 |:---:|:---|:---:|:---:|:---:|:---:|:---:|:---|:---:|
-| **1** | *How does vector normalization and cosine similarity calculation work in sqlite-vec?* | `docs/architecture.md` | 39.93 ms | 15,649 | 151 | **99.04%** | `docs/architecture.md:L256` <br>`[ADD > 5. Database Schema]` | ✅ PASS |
-| **2** | *What is the relational database schema for chunks, documents, and hierarchical edges?* | `docs/architecture.md` | 41.51 ms | 15,649 | 263 | **98.32%** | `docs/architecture.md:L256` <br>`[ADD > 5. Database Schema]` | ✅ PASS |
-| **3** | *What were the deliverables and verification steps completed in Phase 10?* | `docs/phases.md` | 42.45 ms | 6,356 | 112 | **98.24%** | `docs/phases.md:L333` <br>`[Roadmap > Phase 10]` | ✅ PASS |
-| **4** | *How does contextual chunking handle paragraph splitting when exceeding max chunk size?* | `docs/architecture.md` | 42.41 ms | 15,649 | 178 | **98.86%** | `docs/architecture.md:L208` <br>`[ADD > 4.2. Contextual Chunking]` | ✅ PASS |
+| **1** | *How does vector normalization and cosine similarity calculation work in sqlite-vec?* | `docs/architecture/architecture.md` | 39.93 ms | 15,649 | 151 | **99.04%** | `docs/architecture/architecture.md:L256` <br>`[ADD > 5. Database Schema]` | ✅ PASS |
+| **2** | *What is the relational database schema for chunks, documents, and hierarchical edges?* | `docs/architecture/architecture.md` | 41.51 ms | 15,649 | 263 | **98.32%** | `docs/architecture/architecture.md:L256` <br>`[ADD > 5. Database Schema]` | ✅ PASS |
+| **3** | *What were the deliverables and verification steps completed in Phase 10?* | `docs/roadmap/mvp-roadmap.md` | 42.45 ms | 6,356 | 112 | **98.24%** | `docs/roadmap/mvp-roadmap.md:L333` <br>`[Roadmap > Phase 10]` | ✅ PASS |
+| **4** | *How does contextual chunking handle paragraph splitting when exceeding max chunk size?* | `docs/architecture/architecture.md` | 42.41 ms | 15,649 | 178 | **98.86%** | `docs/architecture/architecture.md:L208` <br>`[ADD > 4.2. Contextual Chunking]` | ✅ PASS |
 | **5** | *How to install Git hooks for automatic background documentation indexing?* | `README.md` | 43.57 ms | 1,288 | 112 | **91.30%** | `README.md:L66` <br>`[Quick Start > 5. Git Hooks]` | ✅ PASS |
-| **6** | *How does the MCP stdio JSON-RPC transport protocol work and why must logs go to stderr?* | `docs/architecture.md` | 42.26 ms | 15,649 | 174 | **98.89%** | `docs/architecture.md:L497` <br>`[ADD > 7.1. MCP Server Lifecycle]` | ✅ PASS |
-| **7** | *What is the relevance decay score formula used in graph traversal?* | `docs/architecture.md` | 41.91 ms | 15,649 | 136 | **99.13%** | `docs/architecture.md:L549` <br>`[ADD > 7. Data Flow]` | ✅ PASS |
+| **6** | *How does the MCP stdio JSON-RPC transport protocol work and why must logs go to stderr?* | `docs/architecture/architecture.md` | 42.26 ms | 15,649 | 174 | **98.89%** | `docs/architecture/architecture.md:L497` <br>`[ADD > 7.1. MCP Server Lifecycle]` | ✅ PASS |
+| **7** | *What is the relevance decay score formula used in graph traversal?* | `docs/architecture/architecture.md` | 41.91 ms | 15,649 | 136 | **99.13%** | `docs/architecture/architecture.md:L549` <br>`[ADD > 7. Data Flow]` | ✅ PASS |
 | **8** | *Which AI coding agents are automatically configured by memex install in README?* | `README.md` | 42.60 ms | 1,288 | 126 | **90.22%** | `README.md:L42` <br>`[Quick Start > 2. Auto-Register]` | ✅ PASS |
-| **9** | *How does the incremental index delta engine avoid reprocessing unmodified documentation in phases roadmap?* | `docs/phases.md` | 42.87 ms | 6,356 | 621 | **90.23%** | `docs/phases.md:L193` <br>`[Phase 6 > Delta Engine]` | ✅ PASS |
-| **10** | *How is the CI token reduction efficiency gate implemented in architecture design document?* | `docs/architecture.md` | 41.18 ms | 15,649 | 167 | **98.93%** | `docs/architecture.md:L1317` <br>`[ADD > 13.5.1. CI Efficiency Gate]` | ✅ PASS |
+| **9** | *How does the incremental index delta engine avoid reprocessing unmodified documentation in phases roadmap?* | `docs/roadmap/mvp-roadmap.md` | 42.87 ms | 6,356 | 621 | **90.23%** | `docs/roadmap/mvp-roadmap.md:L193` <br>`[Phase 6 > Delta Engine]` | ✅ PASS |
+| **10** | *How is the CI token reduction efficiency gate implemented in architecture design document?* | `docs/architecture/architecture.md` | 41.18 ms | 15,649 | 167 | **98.93%** | `docs/architecture/architecture.md:L1317` <br>`[ADD > 13.5.1. CI Efficiency Gate]` | ✅ PASS |
 | **AVG** | **Total / Overall Summary** | — | **42.07 ms** | **109,182 t** | **2,040 t** | **📉 98.13%** | **100% Validated Matches** | ✅ PASS |
 
 ---
@@ -88,7 +88,7 @@ Memex computes the local embedding via ONNX, performs KNN search on `vec_chunks`
     "content": [
       {
         "type": "text",
-        "text": "## Results for: \"How does vector normalization and cosine similarity calculation work in sqlite-vec?\"\n\n### 1. docs/architecture.md > Architecture Design Document (ADD) > 5. Database Schema (lines 256-278, score: 0.58)\nThe database uses SQLite with WAL mode. We separate the structural graph data into standard relational tables and the vector data into a `sqlite-vec` virtual table. This allows us to combine the power of SQL joins with fast vector similarity search.\n\n```sql\nCREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(\n    chunk_id TEXT PRIMARY KEY,\n    embedding float[384] distance_metric=cosine\n);\n```\n\nAll embeddings produced by the local ONNX engine are L2-normalized upon generation, ensuring that cosine similarity is computed directly via inner product."
+        "text": "## Results for: \"How does vector normalization and cosine similarity calculation work in sqlite-vec?\"\n\n### 1. docs/architecture/architecture.md > Architecture Design Document (ADD) > 5. Database Schema (lines 256-278, score: 0.58)\nThe database uses SQLite with WAL mode. We separate the structural graph data into standard relational tables and the vector data into a `sqlite-vec` virtual table. This allows us to combine the power of SQL joins with fast vector similarity search.\n\n```sql\nCREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(\n    chunk_id TEXT PRIMARY KEY,\n    embedding float[384] distance_metric=cosine\n);\n```\n\nAll embeddings produced by the local ONNX engine are L2-normalized upon generation, ensuring that cosine similarity is computed directly via inner product."
       }
     ]
   }
@@ -108,7 +108,7 @@ Memex computes the local embedding via ONNX, performs KNN search on `vec_chunks`
    - Because Memex runs completely in-process (embedded SQLite + embedded ONNX Runtime), there is zero network overhead, zero rate limits, and zero cloud API latency.
 
 3. **Hierarchical Breadcrumbs Eliminate Hallucinations:**
-   - Returning `docs/architecture.md > 5. Database Schema` alongside the exact chunk allows the LLM to understand where the excerpt sits in the system architecture without needing the parent document loaded.
+   - Returning `docs/architecture/architecture.md > 5. Database Schema` alongside the exact chunk allows the LLM to understand where the excerpt sits in the system architecture without needing the parent document loaded.
 
 ---
 

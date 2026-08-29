@@ -8,11 +8,11 @@
 
 mod generate_corpus;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use generate_corpus::{generate_medium_corpus, CorpusGenerator, CorpusPreset};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use generate_corpus::{CorpusGenerator, CorpusPreset, generate_medium_corpus};
 use memex::cli::index::run_index;
 use memex::cli::init::init_project;
-use memex::ingestion::embedder::{EmbeddingEngine, ModelManager, EMBEDDING_DIM};
+use memex::ingestion::embedder::{EMBEDDING_DIM, EmbeddingEngine, ModelManager};
 use memex::models::Chunk;
 use memex::storage::db::Database;
 use memex::storage::schema::initialize_schema;

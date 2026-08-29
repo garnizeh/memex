@@ -40,22 +40,22 @@ fn main() {
     let queries = [
         BenchmarkQuery {
             question: "How does vector normalization and cosine similarity calculation work in sqlite-vec?",
-            target_doc: "docs/architecture.md",
+            target_doc: "docs/architecture/architecture.md",
             expected_heading_contains: "Database Schema",
         },
         BenchmarkQuery {
             question: "What is the relational database schema for chunks, documents, and hierarchical edges?",
-            target_doc: "docs/architecture.md",
+            target_doc: "docs/architecture/architecture.md",
             expected_heading_contains: "Database Schema",
         },
         BenchmarkQuery {
             question: "What were the deliverables and verification steps completed in Phase 10?",
-            target_doc: "docs/phases.md",
+            target_doc: "docs/roadmap/mvp-roadmap.md",
             expected_heading_contains: "Phase 10",
         },
         BenchmarkQuery {
             question: "How does contextual chunking handle paragraph splitting when exceeding max chunk size?",
-            target_doc: "docs/architecture.md",
+            target_doc: "docs/architecture/architecture.md",
             expected_heading_contains: "Chunking",
         },
         BenchmarkQuery {
@@ -65,12 +65,12 @@ fn main() {
         },
         BenchmarkQuery {
             question: "How does the MCP stdio JSON-RPC transport protocol work and why must logs go to stderr?",
-            target_doc: "docs/architecture.md",
+            target_doc: "docs/architecture/architecture.md",
             expected_heading_contains: "MCP",
         },
         BenchmarkQuery {
             question: "What is the relevance decay score formula used in graph traversal?",
-            target_doc: "docs/architecture.md",
+            target_doc: "docs/architecture/architecture.md",
             expected_heading_contains: "Data Flow",
         },
         BenchmarkQuery {
@@ -80,12 +80,12 @@ fn main() {
         },
         BenchmarkQuery {
             question: "How does the incremental index delta engine avoid reprocessing unmodified documentation?",
-            target_doc: "docs/phases.md",
+            target_doc: "docs/roadmap/mvp-roadmap.md",
             expected_heading_contains: "Phase 6",
         },
         BenchmarkQuery {
             question: "How is the CI token reduction efficiency gate implemented in architecture design document?",
-            target_doc: "docs/architecture.md",
+            target_doc: "docs/architecture/architecture.md",
             expected_heading_contains: "CI Efficiency Gate",
         },
     ];

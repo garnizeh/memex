@@ -96,7 +96,7 @@ This document outlines a detailed technical roadmap to transition Memex from a f
        "min_chunk_size": 32
      }
      ```
-   - *Token Budget Safety:* Ensure `max_tokens` is bounded (e.g., ≤ 200 tokens) so that when `heading_path`, parent hierarchical context, and tokenizer special tokens (`[CLS]`, `[SEP]`) are prepended into `contextual_content`, the total sequence length stays strictly within the 256-token limit of `TokenizerWrapper` / `all-MiniLM-L6-v2` to avoid truncation.
+   - *Token Budget Safety:* Ensure `max_tokens` is bounded and the complete `contextual_content` sequence (including `heading_path`, parent hierarchical context, chunk body, and tokenizer special tokens `[CLS]`/`[SEP]`) is strictly constrained below `TokenizerWrapper`/`all-MiniLM-L6-v2`'s 256-token limit before embedding, truncating or reducing the chunk body as needed.
 3. **Parent-Child Indexing:**
    - Store small "child" chunks for precise retrieval but return the larger "parent" context window to the LLM.
    - *Schema Change:* Add `parent_id` to the `chunks` table.
@@ -257,8 +257,8 @@ The following standard metrics will be instrumented across the engine:
 **Vision:** Moving from "Search" to "Reasoning".
 
 **Recommendations:**
-1. **Domain-Specific Fine-Tuning:**
-   - Build a pipeline to export high-quality chunk pairs (query, relevant_doc) from user interaction logs (opt-in).
+1. **Domain-Specific Fine-Tuning (Local-Only):**
+   - Provide a local-only pipeline to generate synthetic evaluation/fine-tuning pairs strictly on the user's machine (adhering to the zero-retention guarantee by never collecting or transmitting queries or source content).
    - Provide a script to fine-tune a small local LLM (e.g., Phi-3, Llama-3-8B) on the project's specific terminology.
 2. **Graph-Based Reasoning:**
    - Leverage the existing graph structure (`edges` table) for multi-hop reasoning.
@@ -315,7 +315,7 @@ To measure the success of these recommendations, track the following:
 3. **Crash-Free Session Rate:** Telemetry-verified crash-free execution rate (Target: >99.9%).
 4. **Query Precision & Token Savings:**
    - **Token Reduction:** Maintain >90% (>0.90) reduction via `memex_token_reduction_ratio` telemetry metric.
-   - **Precision@5:** Maintain >0.85 on the standardized offline annotated benchmark fixture (`cargo bench` / `bench_search.rs`) as part of release gating.
+   - **Precision@5:** Maintain >0.85 on the standardized offline annotated benchmark fixture (`cargo bench --bench run_empirical_benchmark`) as part of release gating.
 5. **Performance Governance:**
    - **Standard Query Latency:** Maintain P95 < 0.050s (< 50ms) tracked via `memex_query_duration_seconds{mode="standard"}`.
    - **Precise Query Latency:** Maintain P95 < 0.150s (< 150ms) tracked via `memex_query_duration_seconds{mode="precise"}`.

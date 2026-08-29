@@ -3,7 +3,7 @@
 **Project:** Memex (Local Offline Documentation Context Server)  
 **Document:** Implementation Phases & Granular Task Breakdown  
 **Target:** Engineering Team  
-**Reference Architecture:** [docs/architecture.md](architecture.md)
+**Reference Architecture:** [docs/architecture/architecture.md](../architecture/architecture.md)
 
 ---
 

@@ -12,7 +12,7 @@ use generate_corpus::{CorpusGenerator, CorpusPreset};
 use memex::cli::init::init_project;
 use memex::ingestion::embedder::{EmbeddingEngine, ModelManager};
 use memex::mcp::tools::{
-    format_search_markdown, search_documentation_with_reader, DocSearchResult,
+    DocSearchResult, format_search_markdown, search_documentation_with_reader,
 };
 use memex::storage::db::Database;
 use std::fs;

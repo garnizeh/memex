@@ -736,7 +736,7 @@ The MVP will be built using the following specific Rust ecosystem crates. The ch
 
 | Component | Crate / Technology | Version | Justification |
 | :--- | :--- | :--- | :--- |
-| **Language** | Rust (Edition 2021) | stable | Memory safety, zero-cost abstractions, excellent CLI ecosystem. |
+| **Language** | Rust (Edition 2024) | stable | Memory safety, zero-cost abstractions, excellent CLI ecosystem. |
 | **MCP Protocol** | `rmcp` | latest | JSON-RPC 2.0 stdio transport with MCP tool definition macros. |
 | **Markdown Parsing** | `pulldown-cmark` | 0.11+ | Gold standard for MD in Rust. Event-driven, allows custom AST. |
 | **Database** | `rusqlite` (feat: `bundled`) | 0.32+ | Mature SQLite bindings. `bundled` compiles SQLite from source. |

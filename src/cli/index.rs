@@ -1,9 +1,9 @@
 use crate::config::MemexConfig;
-use crate::discovery::hash::{compute_bytes_hash, compute_file_hash};
 use crate::discovery::FileDiscovery;
+use crate::discovery::hash::{compute_bytes_hash, compute_file_hash};
 use crate::errors::{MemexError, Result};
 use crate::ingestion::chunker::ContextualChunker;
-use crate::ingestion::embedder::{EmbeddingEngine, ModelManager, EMBEDDING_DIM};
+use crate::ingestion::embedder::{EMBEDDING_DIM, EmbeddingEngine, ModelManager};
 use crate::ingestion::parser::MarkdownParser;
 use crate::models::{Chunk, Document, Edge};
 use crate::storage::db::Database;
@@ -1131,9 +1131,11 @@ mod tests {
             .reader()
             .get_chunks_for_document(&updated_doc1.id)
             .unwrap();
-        assert!(doc1_chunks
-            .iter()
-            .any(|c| c.content.contains("New Subsection")));
+        assert!(
+            doc1_chunks
+                .iter()
+                .any(|c| c.content.contains("New Subsection"))
+        );
     }
 
     #[test]

@@ -90,24 +90,24 @@ impl PathFilter {
     /// 4. Otherwise, it is **not ignored**.
     pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
         // 1. Check include overrides
-        if let Some(ref inc) = self.include {
-            if inc.matched(path, is_dir).is_ignore() {
-                return false;
-            }
+        if let Some(ref inc) = self.include
+            && inc.matched(path, is_dir).is_ignore()
+        {
+            return false;
         }
 
         // 2. Check config exclude
-        if let Some(ref exc) = self.exclude {
-            if exc.matched(path, is_dir).is_ignore() {
-                return true;
-            }
+        if let Some(ref exc) = self.exclude
+            && exc.matched(path, is_dir).is_ignore()
+        {
+            return true;
         }
 
         // 3. Check gitignore
-        if let Some(ref gi) = self.gitignore {
-            if gi.matched(path, is_dir).is_ignore() {
-                return true;
-            }
+        if let Some(ref gi) = self.gitignore
+            && gi.matched(path, is_dir).is_ignore()
+        {
+            return true;
         }
 
         false

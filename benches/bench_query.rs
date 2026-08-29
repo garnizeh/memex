@@ -8,7 +8,7 @@
 
 mod generate_corpus;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use generate_corpus::{CorpusGenerator, CorpusPreset};
 use memex::cli::init::init_project;
 use memex::ingestion::embedder::{EmbeddingEngine, ModelManager};

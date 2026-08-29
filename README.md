@@ -2,14 +2,27 @@
 
 > **Local, Offline Documentation Context Server (MCP) for LLMs & AI Coding Agents**
 
-[![Status: Production Ready (MVP)](https://img.shields.io/badge/Status-MVP%20Ready-brightgreen.svg)](#memex)
+[![CI Status](https://github.com/garnizeh/memex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/garnizeh/memex/actions/workflows/ci.yml)
+[![Rust 2024](https://img.shields.io/badge/Rust-2024%20Edition-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-244%20Passing-success.svg)](#-testing--benchmarks)
+[![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![Tests](https://img.shields.io/badge/Tests-461%20Passing-success.svg)](#-testing--benchmarks)
+[![Token Reduction](https://img.shields.io/badge/Token%20Reduction-98.2%25-brightgreen.svg)](docs/benchmarks/benchmark-report.md)
 
-**Memex** is a high-performance, 100% offline [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server written in Rust. It serves as a semantic and structural gateway to project documentation, drastically reducing token consumption, context window pollution, and query latency for AI assistants like Claude Code, Cursor, and Antigravity IDE.
+[![Linux](https://img.shields.io/badge/Linux-supported-blue.svg?logo=linux&logoColor=white)](#-quick-start)
+[![macOS](https://img.shields.io/badge/macOS-supported-blue.svg?logo=apple&logoColor=white)](#-quick-start)
+[![Windows](https://img.shields.io/badge/Windows-supported-blue.svg?logo=windows&logoColor=white)](#-quick-start)
+
+[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-8A2BE2.svg?logo=anthropic&logoColor=white)](#2-auto-register-with-ai-agents)
+[![Cursor](https://img.shields.io/badge/Cursor-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+[![Antigravity IDE](https://img.shields.io/badge/Antigravity_IDE-supported-8A2BE2.svg)](#2-auto-register-with-ai-agents)
+
+**The fastest local documentation context engine · surgical retrieval · built for how agents actually work · 100% offline**
+
+**Memex** is a high-performance, 100% offline [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server written in Rust (2024 Edition). It serves as a semantic and structural gateway to project documentation, drastically reducing token consumption, context window pollution, and query latency for AI assistants like Claude Code, Cursor, and Antigravity IDE.
 
 > [!NOTE]
-> **MVP Complete & Ready for Use:** All 10 development phases and 47 core specification tasks are 100% implemented, tested, and benchmarked. You can build the standalone binary and start indexing repositories immediately.
+> **MVP Complete & Ready for Use:** All development phases and core specification tasks are 100% implemented, tested, and benchmarked. You can build the standalone binary and start indexing repositories immediately.
 
 ---
 
@@ -39,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/garnizeh/memex/main/install.sh | sh
 irm https://raw.githubusercontent.com/garnizeh/memex/main/install.ps1 | iex
 ```
 
-*(Alternatively, build from source via `cargo install --path .` or `cargo build --release`)*
+*(Alternatively, build from source using Rust 1.85+ with `cargo install --path .` or `cargo build --release`)*
 
 ### 2. Auto-Register with AI Agents
 
@@ -65,6 +78,9 @@ Update the index after modifying or adding Markdown documentation:
 
 ```bash
 memex index
+
+# Or force a complete re-index if needed:
+memex index --force
 ```
 
 ### 5. Git Hooks Automation (Optional)
@@ -93,15 +109,20 @@ When started as an MCP server (`memex serve --mcp`), Memex exposes two primary t
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture & Documentation
 
-For a deep dive into data structures, database schema, SQLite queries, parsing pipelines, and benchmark validation gates, check out the comprehensive [Architecture Design Document](docs/architecture.md).
+For a deep dive into technical design, database schemas, and future roadmap, explore the documentation guides:
+
+- 📖 [Documentation Index (`docs/README.md`)](docs/README.md)
+- 🏛️ [Architecture Design Document](docs/architecture/architecture.md)
+- 📊 [Empirical Performance & Benchmark Report](docs/benchmarks/benchmark-report.md)
+- 🗺️ [Roadmap & Milestones](docs/roadmap/mvp-roadmap.md)
 
 ```mermaid
 graph TD
     Client[LLM Host / AI Agent<br>Claude Code, Cursor, etc.] <-->|stdio / JSON-RPC| MCP[Memex MCP Interface]
     
-    subgraph Memex ["Memex Server (Rust)"]
+    subgraph Memex ["Memex Server (Rust 2024)"]
         MCP
         
         subgraph Ingestion_Engine [Ingestion Engine]
@@ -148,7 +169,7 @@ You can customize inclusion and exclusion rules at the project level by committi
 Run tests and benchmarks:
 
 ```bash
-# Run unit & integration tests
+# Run unit & integration tests (461 tests)
 cargo test
 
 # Run efficiency benchmarks
@@ -161,7 +182,7 @@ cargo bench --bench run_empirical_benchmark
 cargo test --test test_token_reduction_gate -- --ignored
 ```
 
-📊 **Empirical Performance Report:** Check out [`docs/benchmark-report.md`](docs/benchmark-report.md) for the full empirical benchmark analysis proving **98.19% token reduction** and **~38ms average query latency** measured on this repository.
+📊 **Empirical Performance Report:** Check out [`docs/benchmarks/benchmark-report.md`](docs/benchmarks/benchmark-report.md) for the full empirical benchmark analysis proving **98.19% token reduction** and **~38ms average query latency** measured on this repository.
 
 ---
 

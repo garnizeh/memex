@@ -4,7 +4,7 @@ pub mod walker;
 
 pub use gitignore::PathFilter;
 pub use hash::{compute_bytes_hash, compute_file_hash};
-pub use walker::{is_markdown_file, FileDiscovery};
+pub use walker::{FileDiscovery, is_markdown_file};
 
 use std::path::Path;
 
@@ -70,17 +70,17 @@ mod tests {
 
     #[test]
     fn test_parent_of_home_dir_rejected() {
-        if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) {
-            if let Some(parent) = home.parent() {
-                let reason = unsafe_index_root_reason(parent);
-                assert!(reason.is_some());
-                let r = reason.unwrap();
-                assert!(
-                    r == "the filesystem root" || r == "a parent of your home directory",
-                    "Unexpected reason: {}",
-                    r
-                );
-            }
+        if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf())
+            && let Some(parent) = home.parent()
+        {
+            let reason = unsafe_index_root_reason(parent);
+            assert!(reason.is_some());
+            let r = reason.unwrap();
+            assert!(
+                r == "the filesystem root" || r == "a parent of your home directory",
+                "Unexpected reason: {}",
+                r
+            );
         }
     }
 

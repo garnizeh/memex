@@ -4,7 +4,7 @@ use crate::ingestion::embedder::{EmbeddingEngine, ModelManager};
 use crate::mcp::tools::{handle_search_documentation_json, handle_traverse_graph_json};
 use crate::mcp::transport::{McpTransport, RequestHandler};
 use crate::mcp::types::{
-    handle_handshake_or_tools, JsonRpcError, JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND,
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND, handle_handshake_or_tools,
 };
 use crate::storage::db::Database;
 use crate::storage::reader::StorageReader;
