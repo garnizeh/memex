@@ -1,7 +1,7 @@
+use serde_json::Value;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use serde_json::Value;
 
 use crate::errors::{MemexError, Result};
 
@@ -87,10 +87,7 @@ pub fn merge_json_value(target: &mut Value, source: &Value) {
     match (target, source) {
         (Value::Object(target_map), Value::Object(source_map)) => {
             for (key, val) in source_map {
-                merge_json_value(
-                    target_map.entry(key.clone()).or_insert(Value::Null),
-                    val,
-                );
+                merge_json_value(target_map.entry(key.clone()).or_insert(Value::Null), val);
             }
         }
         (target_slot, source_val) => {

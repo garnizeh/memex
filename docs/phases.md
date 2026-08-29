@@ -261,7 +261,7 @@ Implement interactive and automated agent configuration injection for Claude Cod
   - **Deliverable:** File helper utility with unit tests.
   - **Verification:** Unit test testing atomic replacement and backup creation on corrupted input.
 
-- [ ] **TASK-8.2: Agent Target Trait & Registry (`src/installer/targets/mod.rs`)**
+- [x] **TASK-8.2: Agent Target Trait & Registry (`src/installer/targets/mod.rs`)**
   - **Description:** Define `AgentTarget` trait with methods: `id()`, `name()`, `detect() -> DetectionResult`, `install(options) -> Result<()>`. Implement target registry detecting installed coding agents.
   - **Deliverable:** Trait and registry module in `src/installer/targets/`.
   - **Verification:** Unit test detecting simulated agent configs in temporary home directory.
