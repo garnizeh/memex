@@ -10,18 +10,18 @@ repository = "https://github.com/garnizeh/memex"
 
 [dependencies]
 # CLI
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 
 # Async runtime
-tokio = { version = "1.44", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
 
 # Serialization & Protocols
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 rmcp = { version = "3.1.4", optional = true }
 
 # Markdown Parsing
-pulldown-cmark = { version = "0.13", default-features = false }
+pulldown-cmark = { version = "0.13.4", default-features = false }
 
 # Database & Vectors
 rusqlite = { version = "0.40.2", features = ["bundled", "modern_sqlite"] }
@@ -32,21 +32,22 @@ ort = { version = "2.0.0-rc.13", default-features = false, features = ["download
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
 
 # File system & Ignores
-ignore = "0.4"
-directories = "6.0"
-walkdir = "2.5"
+ignore = "0.4.33"
+directories = "6.0.0"
+walkdir = "2.5.0"
 
 # Utilities & Error Handling
-thiserror = "2.0"
-anyhow = "1.0"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2.0.20"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 sha2 = "0.11.0"
-hex = "0.4"
+hex = "0.4.3"
+ureq = "3.4.0"
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
-tempfile = "3.18"
+tempfile = "3.27.0"
 tiktoken-rs = "0.12.0"
 
 [[bench]]

@@ -162,7 +162,7 @@ Integrate ONNX Runtime via `ort`, handle tokenizer loading, execute batched infe
 
 ### Tasks
 
-- [ ] **TASK-5.1: Model & Tokenizer Asset Loader (`src/ingestion/embedder.rs`)**
+- [x] **TASK-5.1: Model & Tokenizer Asset Loader (`src/ingestion/embedder.rs`)**
   - **Description:** Implement asset resolution for `all-MiniLM-L6-v2` (`model.onnx` ~80MB and `tokenizer.json`). Check `~/.cache/memex/models/`, download on first run if absent, and verify SHA-256 hash integrity.
   - **Deliverable:** `ModelManager::ensure_model_assets() -> Result<ModelAssets>`.
   - **Verification:** Unit test verifying asset cache path resolution and file integrity check.
