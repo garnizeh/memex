@@ -13,11 +13,11 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// Server context holding the project path (if known), optional database connection, and embedding engine for the MCP server.
+/// Server context holding the project path (if known), optional database connection with its resolved root, and embedding engine for the MCP server.
 #[derive(Debug, Clone)]
 pub struct McpServer {
     target_path: Option<std::path::PathBuf>,
-    db: Arc<Mutex<Option<Database>>>,
+    db: Arc<Mutex<Option<(std::path::PathBuf, Database)>>>,
     engine: Arc<EmbeddingEngine>,
 }
 
@@ -32,18 +32,39 @@ impl McpServer {
 
         let mut initial_db = None;
         if let Some(path) = project_path {
-            if let Ok(root) = find_project_root(path)
-                && let db_path = root.join(".memex").join("memex.db")
-                && let Ok(db) = Database::open_readonly(&db_path)
-            {
-                initial_db = Some(db);
+            if let Ok(root) = find_project_root(path) {
+                let db_path = root.join(".memex").join("memex.db");
+                let alt_path = root.join(".memex").join("index.db");
+                let target_db = if db_path.exists() {
+                    Some(db_path)
+                } else if alt_path.exists() {
+                    Some(alt_path)
+                } else {
+                    None
+                };
+                if let Some(p) = target_db
+                    && let Ok(db) = Database::open_readonly(&p)
+                {
+                    initial_db = Some((root, db));
+                }
             }
         } else if let Ok(cwd) = std::env::current_dir()
             && let Ok(root) = find_project_root(&cwd)
-            && let db_path = root.join(".memex").join("memex.db")
-            && let Ok(db) = Database::open_readonly(&db_path)
         {
-            initial_db = Some(db);
+            let db_path = root.join(".memex").join("memex.db");
+            let alt_path = root.join(".memex").join("index.db");
+            let target_db = if db_path.exists() {
+                Some(db_path)
+            } else if alt_path.exists() {
+                Some(alt_path)
+            } else {
+                None
+            };
+            if let Some(p) = target_db
+                && let Ok(db) = Database::open_readonly(&p)
+            {
+                initial_db = Some((root, db));
+            }
         }
 
         Ok(Self {
@@ -57,13 +78,19 @@ impl McpServer {
     pub fn with_components(db: Database, engine: Arc<EmbeddingEngine>) -> Self {
         Self {
             target_path: None,
-            db: Arc::new(Mutex::new(Some(db))),
+            db: Arc::new(Mutex::new(Some((
+                std::env::current_dir().unwrap_or_default(),
+                db,
+            )))),
             engine,
         }
     }
 
     /// Resolves or refreshes the database connection targeting the nearest initialized project root.
-    fn get_or_open_db(&self, project_path_hint: Option<&Path>) -> Result<Database> {
+    fn get_or_open_db(
+        &self,
+        project_path_hint: Option<&Path>,
+    ) -> Result<(std::path::PathBuf, Database)> {
         let candidate_path = project_path_hint.or(self.target_path.as_deref());
 
         let root = if let Some(path) = candidate_path {
@@ -85,7 +112,8 @@ impl McpServer {
             }
         }
 
-        Database::open_readonly(&db_path)
+        let db = Database::open_readonly(&db_path)?;
+        Ok((root, db))
     }
 
     /// Handles an incoming JSON-RPC request synchronously.
@@ -121,11 +149,26 @@ impl McpServer {
                 Err(poisoned) => poisoned.into_inner(),
             };
 
-            // If we don't have a cached DB or if a specific path hint was provided, attempt to resolve/open it
-            if db_guard.is_none() || project_path_hint.is_some() {
+            // Resolve project candidate path
+            let candidate_path = project_path_hint.or(self.target_path.as_deref());
+            let target_root = if let Some(path) = candidate_path {
+                find_project_root(path).ok()
+            } else {
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|cwd| find_project_root(&cwd).ok())
+            };
+
+            let needs_reload = match (&*db_guard, &target_root) {
+                (Some((cached_root, _)), Some(current_root)) => cached_root != current_root,
+                (None, _) => true,
+                _ => false,
+            };
+
+            if needs_reload {
                 match self.get_or_open_db(project_path_hint) {
-                    Ok(new_db) => {
-                        *db_guard = Some(new_db);
+                    Ok((resolved_root, new_db)) => {
+                        *db_guard = Some((resolved_root, new_db));
                     }
                     Err(err) => {
                         return Some(JsonRpcResponse::success(
@@ -138,7 +181,7 @@ impl McpServer {
                 }
             }
 
-            let db_ref = db_guard.as_ref().unwrap();
+            let (_root, db_ref) = db_guard.as_ref().unwrap();
             let reader = StorageReader::new(db_ref.conn());
 
             let result = match tool_name {

@@ -536,7 +536,7 @@ impl<'a> IndexCoordinator<'a> {
                 reporter.step_embeddings(count);
             })?
         };
-        reporter.finish_embeddings();
+        reporter.finish_embeddings(all_chunks.len());
 
         if embeddings.len() != all_chunks.len() && !all_chunks.is_empty() {
             return Err(MemexError::EmbeddingError {
@@ -644,7 +644,8 @@ pub fn find_project_root(path: &Path) -> Result<PathBuf> {
     let mut current = Some(start_dir);
     while let Some(dir) = current {
         let db_path = dir.join(".memex").join("memex.db");
-        if db_path.is_file() || db_path.exists() {
+        let alt_db_path = dir.join(".memex").join("index.db");
+        if db_path.is_file() || db_path.exists() || alt_db_path.is_file() || alt_db_path.exists() {
             return Ok(dir.to_path_buf());
         }
         current = dir.parent();

@@ -161,7 +161,7 @@ impl IndexProgressReporter {
     }
 
     /// Completes embedding generation.
-    pub fn finish_embeddings(&mut self) {
+    pub fn finish_embeddings(&mut self, total_chunks: usize) {
         if self.quiet {
             return;
         }
@@ -169,7 +169,9 @@ impl IndexProgressReporter {
         if let Some(ref pb) = self.embed_bar.take() {
             pb.finish_and_clear();
         }
-        eprintln!("✓ [3/4] Generated 384-dimensional ONNX vector embeddings");
+        if total_chunks > 0 {
+            eprintln!("✓ [3/4] Generated 384-dimensional ONNX vector embeddings");
+        }
     }
 
     /// Stage 4: Writing to SQLite database.
@@ -229,7 +231,7 @@ mod tests {
         reporter.start_embeddings(15);
         reporter.step_embeddings(5);
         reporter.step_embeddings(10);
-        reporter.finish_embeddings();
+        reporter.finish_embeddings(15);
         reporter.start_writing_db();
         reporter.finish_writing_db();
     }
@@ -251,7 +253,7 @@ mod tests {
         reporter.finish_parsing(4, 8);
         reporter.start_embeddings(4);
         reporter.step_embeddings(4);
-        reporter.finish_embeddings();
+        reporter.finish_embeddings(4);
         reporter.start_writing_db();
         reporter.finish_writing_db();
     }
@@ -260,6 +262,6 @@ mod tests {
     fn test_progress_reporter_zero_chunks() {
         let mut reporter = IndexProgressReporter::new(false);
         reporter.start_embeddings(0);
-        reporter.finish_embeddings();
+        reporter.finish_embeddings(0);
     }
 }
