@@ -5,7 +5,9 @@ pub enum MemexError {
     #[error("Memex not initialized in '{path}'. Run 'memex init' first.")]
     NotInitialized { path: String },
 
-    #[error("Refusing to initialize in '{path}' — it looks like {reason}. Pass --force to override.")]
+    #[error(
+        "Refusing to initialize in '{path}' — it looks like {reason}. Pass --force to override."
+    )]
     UnsafeRoot { path: String, reason: String },
 
     #[error("Already initialized in '{path}'. Use 'memex index' to re-index.")]

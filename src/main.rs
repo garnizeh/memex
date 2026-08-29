@@ -78,16 +78,33 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Install { target, yes } => {
-            eprintln!("Installing Memex MCP (target: {:?}, non-interactive: {})", target, yes);
+            eprintln!(
+                "Installing Memex MCP (target: {:?}, non-interactive: {})",
+                target, yes
+            );
             // TODO: Call installer module
         }
-        Commands::Init { path, force, verbose } => {
-            eprintln!("Initializing Memex at {:?} (force: {}, verbose: {})", path, force, verbose);
+        Commands::Init {
+            path,
+            force,
+            verbose,
+        } => {
+            eprintln!(
+                "Initializing Memex at {:?} (force: {}, verbose: {})",
+                path, force, verbose
+            );
             // TODO: Call init pipeline
         }
-        Commands::Index { path, quiet, verbose } => {
+        Commands::Index {
+            path,
+            quiet,
+            verbose,
+        } => {
             if !quiet {
-                eprintln!("Indexing documentation at {:?} (verbose: {})", path, verbose);
+                eprintln!(
+                    "Indexing documentation at {:?} (verbose: {})",
+                    path, verbose
+                );
             }
             // TODO: Call index pipeline
         }
