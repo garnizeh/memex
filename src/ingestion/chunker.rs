@@ -626,9 +626,337 @@ impl ContextualChunker {
         }
         edges
     }
+
+    /// Converts text (e.g. a heading title or anchor) into a normalized URL/anchor slug.
+    ///
+    /// Converts to lowercase, strips leading/trailing markdown characters (like `#` or `` ` ``),
+    /// converts whitespace and underscores/hyphens to single hyphens, and removes punctuation.
+    pub fn slugify(text: &str) -> String {
+        let mut clean = text.trim().trim_start_matches('#').trim().to_string();
+
+        // If text contains markdown link [text](url), extract the inner text
+        while let Some(start_bracket) = clean.find('[') {
+            if let Some(end_bracket) = clean[start_bracket..].find(']') {
+                let end_bracket_idx = start_bracket + end_bracket;
+                if let Some(start_paren) = clean[end_bracket_idx..].find('(') {
+                    if start_paren == 1 {
+                        let start_paren_idx = end_bracket_idx + start_paren;
+                        if let Some(end_paren) = clean[start_paren_idx..].find(')') {
+                            let end_paren_idx = start_paren_idx + end_paren;
+                            let link_text = clean[start_bracket + 1..end_bracket_idx].to_string();
+                            clean = format!(
+                                "{}{}{}",
+                                &clean[..start_bracket],
+                                link_text,
+                                &clean[end_paren_idx + 1..]
+                            );
+                            continue;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        let mut slug = String::with_capacity(clean.len());
+        let mut prev_is_dash = false;
+
+        for ch in clean.chars() {
+            if ch.is_alphanumeric() {
+                slug.push(ch.to_ascii_lowercase());
+                prev_is_dash = false;
+            } else if ch.is_whitespace() || ch == '-' || ch == '_' {
+                if !prev_is_dash && !slug.is_empty() {
+                    slug.push('-');
+                    prev_is_dash = true;
+                }
+            }
+        }
+
+        if slug.ends_with('-') {
+            slug.pop();
+        }
+
+        slug
+    }
+
+    /// Extracts inline Markdown links `[text](target)` from raw content.
+    pub fn extract_markdown_links(content: &str) -> Vec<(String, String)> {
+        let mut links = Vec::new();
+        let parser = pulldown_cmark::Parser::new(content);
+        let mut in_link = false;
+        let mut current_dest = String::new();
+        let mut current_text = String::new();
+
+        for event in parser {
+            match event {
+                pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
+                    in_link = true;
+                    current_dest = dest_url.to_string();
+                    current_text.clear();
+                }
+                pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Link) => {
+                    if in_link {
+                        let text = current_text.trim().to_string();
+                        let dest = current_dest.trim().to_string();
+                        if !dest.is_empty() {
+                            links.push((text, dest));
+                        }
+                        in_link = false;
+                        current_dest.clear();
+                        current_text.clear();
+                    }
+                }
+                pulldown_cmark::Event::Text(t)
+                | pulldown_cmark::Event::Code(t)
+                | pulldown_cmark::Event::InlineMath(t)
+                | pulldown_cmark::Event::DisplayMath(t)
+                    if in_link =>
+                {
+                    current_text.push_str(&t);
+                }
+                _ => {}
+            }
+        }
+        links
+    }
+
+    /// Returns `true` if the URL is an external link (e.g. `http://`, `https://`, `mailto:`),
+    /// which should not generate knowledge graph edges.
+    pub fn is_external_link(url: &str) -> bool {
+        let trimmed = url.trim().to_ascii_lowercase();
+        trimmed.starts_with("http://")
+            || trimmed.starts_with("https://")
+            || trimmed.starts_with("mailto:")
+            || trimmed.starts_with("ftp://")
+            || trimmed.starts_with("ftps://")
+            || trimmed.starts_with("//")
+            || (trimmed.contains("://") && !trimmed.starts_with("file://"))
+    }
+
+    /// Parses a link target into an optional document file path and an optional anchor slug.
+    ///
+    /// Examples:
+    /// - `"#oauth2"` -> `(None, Some("oauth2"))`
+    /// - `"auth.md#oauth2"` -> `(Some("auth.md"), Some("oauth2"))`
+    /// - `"auth.md"` -> `(Some("auth.md"), None)`
+    /// - `"../api/auth.md#oauth2"` -> `(Some("../api/auth.md"), Some("oauth2"))`
+    pub fn parse_link_target(target: &str) -> (Option<&str>, Option<&str>) {
+        let trimmed = target.trim();
+        if trimmed.is_empty() || trimmed == "#" {
+            return (None, None);
+        }
+
+        if let Some(anchor) = trimmed.strip_prefix('#') {
+            let anchor_clean = anchor.trim();
+            if anchor_clean.is_empty() {
+                (None, None)
+            } else {
+                (None, Some(anchor_clean))
+            }
+        } else if let Some((file_part, anchor_part)) = trimmed.split_once('#') {
+            let file_clean = file_part.trim();
+            let anchor_clean = anchor_part.trim();
+            let file_opt = if file_clean.is_empty() {
+                None
+            } else {
+                Some(file_clean)
+            };
+            let anchor_opt = if anchor_clean.is_empty() {
+                None
+            } else {
+                Some(anchor_clean)
+            };
+            (file_opt, anchor_opt)
+        } else {
+            (Some(trimmed), None)
+        }
+    }
+
+    /// Normalizes a relative target path against a base directory string.
+    pub fn normalize_relative_path(base_dir: &str, relative_target: &str) -> String {
+        let mut parts = Vec::new();
+        if !base_dir.is_empty() && base_dir != "." {
+            for part in base_dir.split('/') {
+                if !part.is_empty() && part != "." {
+                    parts.push(part);
+                }
+            }
+        }
+        for part in relative_target.split('/') {
+            if part.is_empty() || part == "." {
+                continue;
+            } else if part == ".." {
+                parts.pop();
+            } else {
+                parts.push(part);
+            }
+        }
+        parts.join("/")
+    }
+
+    /// Resolves explicit Markdown links (`[text](target)`) within or across documents into [`EdgeType::ExplicitLink`] edges.
+    ///
+    /// - Resolves internal anchors (`#slug`) to matching heading chunks.
+    /// - Resolves cross-document links (`other.md#slug` or `other.md`) to matching chunks in target documents.
+    /// - Skips external HTTP/HTTPS/mailto URLs.
+    /// - Skips unresolvable/broken links without error.
+    pub fn resolve_explicit_links(
+        chunks: &[Chunk],
+        doc_paths: Option<&[(String, String)]>,
+    ) -> Vec<Edge> {
+        let mut edges = Vec::new();
+        if chunks.is_empty() {
+            return edges;
+        }
+
+        // Build heading slug index: (doc_id, slug) -> chunk_id
+        // Also build doc roots index: doc_id -> first chunk_id
+        // Also build doc first heading index: doc_id -> first heading chunk_id
+        let mut heading_slug_map: std::collections::HashMap<(String, String), String> =
+            std::collections::HashMap::new();
+        let mut doc_first_chunk: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut doc_first_heading: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        for chunk in chunks {
+            doc_first_chunk
+                .entry(chunk.doc_id.clone())
+                .or_insert_with(|| chunk.id.clone());
+
+            if let ChunkType::Heading { .. } = &chunk.chunk_type {
+                doc_first_heading
+                    .entry(chunk.doc_id.clone())
+                    .or_insert_with(|| chunk.id.clone());
+
+                let heading_title = chunk.content.trim_start_matches('#').trim();
+                let slug = Self::slugify(heading_title);
+                if !slug.is_empty() {
+                    heading_slug_map
+                        .entry((chunk.doc_id.clone(), slug))
+                        .or_insert_with(|| chunk.id.clone());
+                }
+            }
+        }
+
+        // Map doc_id -> file_path and file_path -> doc_id
+        let mut doc_id_to_path: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut path_to_doc_id: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        if let Some(paths) = doc_paths {
+            for (doc_id, path) in paths {
+                let normalized = path.replace('\\', "/");
+                doc_id_to_path.insert(doc_id.clone(), normalized.clone());
+                path_to_doc_id.insert(normalized, doc_id.clone());
+            }
+        }
+
+        for chunk in chunks {
+            let links = Self::extract_markdown_links(&chunk.content);
+            for (link_text, dest_url) in links {
+                if Self::is_external_link(&dest_url) {
+                    continue;
+                }
+
+                let (file_opt, anchor_opt) = Self::parse_link_target(&dest_url);
+
+                // Determine target doc_id
+                let target_doc_id = match file_opt {
+                    None => Some(chunk.doc_id.clone()),
+                    Some(file_target) => {
+                        let clean_target = file_target.replace('\\', "/");
+                        // 1. Direct doc_id match
+                        if doc_first_chunk.contains_key(&clean_target) {
+                            Some(clean_target)
+                        } else if let Some(target_id) = path_to_doc_id.get(&clean_target) {
+                            Some(target_id.clone())
+                        } else {
+                            // Try resolving relative path from current document's directory
+                            let source_path = doc_id_to_path.get(&chunk.doc_id);
+                            let source_dir = source_path
+                                .and_then(|p| std::path::Path::new(p).parent())
+                                .and_then(|p| p.to_str())
+                                .unwrap_or("");
+                            let normalized =
+                                Self::normalize_relative_path(source_dir, &clean_target);
+
+                            if let Some(target_id) = path_to_doc_id.get(&normalized) {
+                                Some(target_id.clone())
+                            } else {
+                                // Try matching by filename / basename
+                                let target_file_name = std::path::Path::new(&clean_target)
+                                    .file_name()
+                                    .and_then(|f| f.to_str());
+
+                                let mut found_id = None;
+                                if let Some(t_fname) = target_file_name {
+                                    for (p, d_id) in &path_to_doc_id {
+                                        if let Some(p_fname) = std::path::Path::new(p)
+                                            .file_name()
+                                            .and_then(|f| f.to_str())
+                                        {
+                                            if p_fname == t_fname {
+                                                found_id = Some(d_id.clone());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                found_id
+                            }
+                        }
+                    }
+                };
+
+                let target_doc_id = match target_doc_id {
+                    Some(id) => id,
+                    None => continue, // Unresolvable document (broken link)
+                };
+
+                // Determine target chunk_id
+                let target_chunk_id = match anchor_opt {
+                    Some(anchor) => {
+                        let slug = Self::slugify(anchor);
+                        heading_slug_map
+                            .get(&(target_doc_id.clone(), slug))
+                            .cloned()
+                    }
+                    None => {
+                        // Point to first heading if available, or first chunk of target doc
+                        doc_first_heading
+                            .get(&target_doc_id)
+                            .or_else(|| doc_first_chunk.get(&target_doc_id))
+                            .cloned()
+                    }
+                };
+
+                if let Some(target_id) = target_chunk_id {
+                    edges.push(Edge {
+                        source_chunk_id: chunk.id.clone(),
+                        target_chunk_id: target_id,
+                        edge_type: EdgeType::ExplicitLink,
+                        link_text: if link_text.is_empty() {
+                            None
+                        } else {
+                            Some(link_text)
+                        },
+                    });
+                }
+            }
+        }
+
+        edges
+    }
+
+    /// Convenience method to build explicit link edges for chunks within a single document or pre-indexed chunks.
+    pub fn build_explicit_link_edges(chunks: &[Chunk]) -> Vec<Edge> {
+        Self::resolve_explicit_links(chunks, None)
+    }
 }
 
-/// Convenience helper to generate chunks for a document AST with default max chunk size.
 pub fn chunk_document(doc_id: &str, ast: &DocumentAst) -> Vec<Chunk> {
     ContextualChunker::chunk_document(doc_id, ast)
 }
@@ -685,6 +1013,44 @@ pub fn split_list(content: &str, max_chars: usize) -> Vec<String> {
 /// Convenience helper to split content according to chunk type.
 pub fn split_chunk_content(content: &str, chunk_type: &ChunkType, max_chars: usize) -> Vec<String> {
     ContextualChunker::split_chunk_content(content, chunk_type, max_chars)
+}
+
+/// Convenience helper to convert text into a URL/anchor slug.
+pub fn slugify(text: &str) -> String {
+    ContextualChunker::slugify(text)
+}
+
+/// Convenience helper to extract inline Markdown links `(link_text, destination)` from content.
+pub fn extract_markdown_links(content: &str) -> Vec<(String, String)> {
+    ContextualChunker::extract_markdown_links(content)
+}
+
+/// Convenience helper to check if a URL is an external link.
+pub fn is_external_link(url: &str) -> bool {
+    ContextualChunker::is_external_link(url)
+}
+
+/// Convenience helper to parse a link target into `(Option<file_path>, Option<anchor_slug>)`.
+pub fn parse_link_target(target: &str) -> (Option<&str>, Option<&str>) {
+    ContextualChunker::parse_link_target(target)
+}
+
+/// Convenience helper to normalize a relative path against a base directory.
+pub fn normalize_relative_path(base_dir: &str, relative_target: &str) -> String {
+    ContextualChunker::normalize_relative_path(base_dir, relative_target)
+}
+
+/// Convenience helper to resolve explicit markdown links across chunks and documents.
+pub fn resolve_explicit_links(
+    chunks: &[Chunk],
+    doc_paths: Option<&[(String, String)]>,
+) -> Vec<Edge> {
+    ContextualChunker::resolve_explicit_links(chunks, doc_paths)
+}
+
+/// Convenience helper to build explicit link edges for chunks within a document.
+pub fn build_explicit_link_edges(chunks: &[Chunk]) -> Vec<Edge> {
+    ContextualChunker::build_explicit_link_edges(chunks)
 }
 
 #[cfg(test)]
@@ -1141,24 +1507,11 @@ Paragraph under H2 B.
         let ast = MarkdownParser::parse(markdown).expect("Failed to parse markdown");
         let chunks = chunk_document("doc_hierarchy_test", &ast);
 
-        // Chunks expected:
-        // 0: H1 Root H1 (parent: None)
-        // 1: Paragraph Introduction under root (parent: H1)
-        // 2: H2 Child H2 A (parent: H1)
-        // 3: Paragraph Paragraph under H2 A (parent: H2 A)
-        // 4: H3 Subchild H3 (parent: H2 A)
-        // 5: Paragraph Paragraph under H3 (parent: H3)
-        // 6: CodeBlock code_under_h3 (parent: H3)
-        // 7: H2 Child H2 B (parent: H1)
-        // 8: Paragraph Paragraph under H2 B (parent: H2 B)
         assert_eq!(chunks.len(), 9);
 
         let edges = build_hierarchy_edges(&chunks);
-
-        // Every chunk with parent_chunk_id != None should have exactly 1 hierarchy edge
         assert_eq!(edges.len(), 8);
 
-        // Check edge types and link text
         for edge in &edges {
             assert_eq!(edge.edge_type, EdgeType::Hierarchy);
             assert_eq!(edge.link_text, None);
@@ -1174,7 +1527,6 @@ Paragraph under H2 B.
         let h2_b_id = &chunks[7].id;
         let p_h2_b_id = &chunks[8].id;
 
-        // Verify specific hierarchy source -> target links
         assert_eq!(edges[0].source_chunk_id, *h1_id);
         assert_eq!(edges[0].target_chunk_id, *p_intro_id);
 
@@ -1209,5 +1561,215 @@ Paragraph under H2 B.
         let chunks = chunk_document("doc_no_headings", &ast);
         let edges = build_hierarchy_edges(&chunks);
         assert_eq!(edges.len(), 0);
+    }
+
+    #[test]
+    fn test_slugify_various_inputs() {
+        assert_eq!(slugify("Storage Engine"), "storage-engine");
+        assert_eq!(slugify("OAuth2 Authentication!"), "oauth2-authentication");
+        assert_eq!(
+            slugify("### Vector Search (384-dim)"),
+            "vector-search-384-dim"
+        );
+        assert_eq!(slugify("  Heading  With   Spaces  "), "heading-with-spaces");
+        assert_eq!(slugify("`MemexError` Type"), "memexerror-type");
+        assert_eq!(slugify("What is Memex?"), "what-is-memex");
+        assert_eq!(slugify(""), "");
+    }
+
+    #[test]
+    fn test_extract_markdown_links() {
+        let content = "Check [OAuth2 Guide](auth.md#oauth2) and [Section](#section) or [Google](https://google.com).";
+        let links = extract_markdown_links(content);
+        assert_eq!(
+            links,
+            vec![
+                ("OAuth2 Guide".to_string(), "auth.md#oauth2".to_string()),
+                ("Section".to_string(), "#section".to_string()),
+                ("Google".to_string(), "https://google.com".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_is_external_link() {
+        assert!(is_external_link("http://example.com"));
+        assert!(is_external_link("https://github.com/garnizeh/memex"));
+        assert!(is_external_link("mailto:dev@example.com"));
+        assert!(is_external_link("ftp://ftp.example.com"));
+        assert!(is_external_link("//cdn.example.com/asset.js"));
+
+        assert!(!is_external_link("#internal-anchor"));
+        assert!(!is_external_link("other.md"));
+        assert!(!is_external_link("../api/auth.md#oauth2"));
+        assert!(!is_external_link("docs/architecture.md"));
+    }
+
+    #[test]
+    fn test_parse_link_target() {
+        assert_eq!(parse_link_target("#oauth2"), (None, Some("oauth2")));
+        assert_eq!(
+            parse_link_target("auth.md#oauth2"),
+            (Some("auth.md"), Some("oauth2"))
+        );
+        assert_eq!(parse_link_target("auth.md"), (Some("auth.md"), None));
+        assert_eq!(
+            parse_link_target("../api/auth.md#oauth2"),
+            (Some("../api/auth.md"), Some("oauth2"))
+        );
+        assert_eq!(parse_link_target("#"), (None, None));
+        assert_eq!(parse_link_target(""), (None, None));
+    }
+
+    #[test]
+    fn test_normalize_relative_path() {
+        assert_eq!(
+            normalize_relative_path("docs/guides", "../api/auth.md"),
+            "docs/api/auth.md"
+        );
+        assert_eq!(
+            normalize_relative_path("docs", "architecture.md"),
+            "docs/architecture.md"
+        );
+        assert_eq!(normalize_relative_path("", "auth.md"), "auth.md");
+        assert_eq!(
+            normalize_relative_path("docs", "./setup.md"),
+            "docs/setup.md"
+        );
+    }
+
+    #[test]
+    fn test_explicit_link_edge_resolved_internal_anchor() {
+        let markdown = r#"# User Guide
+
+## Overview
+For details on login, see [Authentication Section](#authentication).
+
+## Authentication
+Here are authentication details.
+"#;
+
+        let ast = MarkdownParser::parse(markdown).expect("Failed to parse markdown");
+        let chunks = chunk_document("doc_guide", &ast);
+
+        // Chunks:
+        // 0: H1 User Guide
+        // 1: H2 Overview
+        // 2: Paragraph with link [Authentication Section](#authentication)
+        // 3: H2 Authentication
+        // 4: Paragraph under Authentication
+        assert_eq!(chunks.len(), 5);
+
+        let edges = build_explicit_link_edges(&chunks);
+        assert_eq!(edges.len(), 1);
+
+        let link_edge = &edges[0];
+        let p_overview = &chunks[2];
+        let h2_auth = &chunks[3];
+
+        assert_eq!(link_edge.edge_type, EdgeType::ExplicitLink);
+        assert_eq!(link_edge.source_chunk_id, p_overview.id);
+        assert_eq!(link_edge.target_chunk_id, h2_auth.id);
+        assert_eq!(
+            link_edge.link_text,
+            Some("Authentication Section".to_string())
+        );
+    }
+
+    #[test]
+    fn test_explicit_link_edge_resolved_cross_document() {
+        let doc1_md = r#"# Guide
+Read [see auth](auth.md#oauth2) for credentials.
+"#;
+        let doc2_md = r#"# Security
+## OAuth2
+OAuth2 token configuration.
+"#;
+
+        let ast1 = MarkdownParser::parse(doc1_md).unwrap();
+        let ast2 = MarkdownParser::parse(doc2_md).unwrap();
+
+        let doc1_chunks = chunk_document("doc_guide_id", &ast1);
+        let doc2_chunks = chunk_document("doc_auth_id", &ast2);
+
+        let mut all_chunks = doc1_chunks;
+        all_chunks.extend(doc2_chunks);
+
+        let doc_paths = vec![
+            ("doc_guide_id".to_string(), "docs/guide.md".to_string()),
+            ("doc_auth_id".to_string(), "docs/auth.md".to_string()),
+        ];
+
+        let edges = resolve_explicit_links(&all_chunks, Some(&doc_paths));
+        assert_eq!(edges.len(), 1);
+
+        let edge = &edges[0];
+        assert_eq!(edge.edge_type, EdgeType::ExplicitLink);
+        assert_eq!(edge.link_text, Some("see auth".to_string()));
+
+        // Source chunk is Paragraph in doc1
+        assert_eq!(edge.source_chunk_id, all_chunks[1].id);
+        // Target chunk is H2 OAuth2 in doc2 (index 3 in all_chunks: 0=H1, 1=P, 2=H1 Security, 3=H2 OAuth2)
+        assert_eq!(edge.target_chunk_id, all_chunks[3].id);
+    }
+
+    #[test]
+    fn test_broken_link_no_edge() {
+        let markdown = r#"# Broken Links
+Here is a broken link: [see nothing](missing.md#nonexistent).
+And internal broken: [missing section](#not-here).
+"#;
+
+        let ast = MarkdownParser::parse(markdown).unwrap();
+        let chunks = chunk_document("doc_broken", &ast);
+
+        let edges = build_explicit_link_edges(&chunks);
+        assert_eq!(edges.len(), 0);
+    }
+
+    #[test]
+    fn test_external_urls_do_not_generate_edges() {
+        let markdown = r#"# External Links
+Visit [Official Website](https://example.com/docs) or [Email](mailto:info@example.com).
+"#;
+
+        let ast = MarkdownParser::parse(markdown).unwrap();
+        let chunks = chunk_document("doc_ext", &ast);
+
+        let edges = build_explicit_link_edges(&chunks);
+        assert_eq!(edges.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_explicit_links_in_single_chunk() {
+        let markdown = r#"# Reference
+
+## Section A
+Alpha text.
+
+## Section B
+Beta text.
+
+## Summary
+See [Section A](#section-a) and also [Section B](#section-b).
+"#;
+
+        let ast = MarkdownParser::parse(markdown).unwrap();
+        let chunks = chunk_document("doc_multi", &ast);
+
+        let edges = build_explicit_link_edges(&chunks);
+        assert_eq!(edges.len(), 2);
+
+        let h2_a = &chunks[1];
+        let h2_b = &chunks[3];
+        let p_summary = &chunks[6];
+
+        assert_eq!(edges[0].source_chunk_id, p_summary.id);
+        assert_eq!(edges[0].target_chunk_id, h2_a.id);
+        assert_eq!(edges[0].link_text, Some("Section A".to_string()));
+
+        assert_eq!(edges[1].source_chunk_id, p_summary.id);
+        assert_eq!(edges[1].target_chunk_id, h2_b.id);
+        assert_eq!(edges[1].link_text, Some("Section B".to_string()));
     }
 }

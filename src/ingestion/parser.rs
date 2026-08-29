@@ -112,6 +112,7 @@ impl MarkdownParser {
         let mut flat_nodes = Vec::new();
         let mut current_state = BlockState::None;
         let mut list_depth: usize = 0;
+        let mut current_link_dest: Option<String> = None;
 
         for (event, range) in parser {
             match event {
@@ -328,6 +329,38 @@ impl MarkdownParser {
                     if let BlockState::List { ref mut text, .. } = current_state {
                         if !text.ends_with('\n') {
                             text.push('\n');
+                        }
+                    }
+                }
+                Event::Start(Tag::Link { ref dest_url, .. }) => {
+                    current_link_dest = Some(dest_url.to_string());
+                    match current_state {
+                        BlockState::Heading { ref mut title, .. } => {
+                            title.push('[');
+                        }
+                        BlockState::Paragraph { ref mut text, .. } => {
+                            text.push('[');
+                        }
+                        BlockState::List { ref mut text, .. } => {
+                            text.push('[');
+                        }
+                        _ => {}
+                    }
+                }
+                Event::End(TagEnd::Link) => {
+                    if let Some(dest) = current_link_dest.take() {
+                        let link_suffix = format!("]({dest})");
+                        match current_state {
+                            BlockState::Heading { ref mut title, .. } => {
+                                title.push_str(&link_suffix);
+                            }
+                            BlockState::Paragraph { ref mut text, .. } => {
+                                text.push_str(&link_suffix);
+                            }
+                            BlockState::List { ref mut text, .. } => {
+                                text.push_str(&link_suffix);
+                            }
+                            _ => {}
                         }
                     }
                 }

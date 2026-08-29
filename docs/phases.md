@@ -149,7 +149,7 @@ Transform Markdown files into an AST, generate contextually prefixed chunks, bui
   - **Deliverable:** Generator outputting `Vec<Edge>` for document hierarchy.
   - **Verification:** Unit test asserting correct edge count and source/target IDs in nested sections.
 
-- [ ] **TASK-4.5: Explicit Markdown Link Resolver (`src/ingestion/chunker.rs`)**
+- [x] **TASK-4.5: Explicit Markdown Link Resolver (`src/ingestion/chunker.rs`)**
   - **Description:** Detect markdown links `[text](target)`. Resolve internal anchors (`#slug`) and cross-document links (`other.md#slug`) to target chunk IDs, creating `EdgeType::ExplicitLink` edges. Skip external HTTP/HTTPS URLs.
   - **Deliverable:** Link resolution pass in chunking pipeline.
   - **Verification:** Unit test checking explicit edges created between two linked sections.
