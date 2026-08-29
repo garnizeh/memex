@@ -31,7 +31,10 @@ impl AgentTarget for AntigravityTarget {
             global_config
         };
 
-        if gemini_dir.exists() || config_path.exists() {
+        let antigravity_ide_dir = gemini_dir.join("antigravity-ide");
+        let gemini_config_dir = gemini_dir.join("config");
+
+        if config_path.exists() || antigravity_ide_dir.exists() || gemini_config_dir.exists() {
             let is_configured = is_memex_in_mcp_config(&config_path);
             Ok(DetectionResult::Detected {
                 config_path,
