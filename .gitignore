@@ -30,3 +30,6 @@ Thumbs.db
 *.bak
 *.swp
 *~
+temp/
+docs/roadmap/temp/
+

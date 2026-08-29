@@ -19,14 +19,22 @@ fn test_e2e_real_world_docs_validation() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let docs_src = repo_root.join("docs");
     let docs_dest = project_dir.join("docs");
-    fs::create_dir_all(&docs_dest).unwrap();
 
-    for entry in fs::read_dir(&docs_src).unwrap() {
-        let entry = entry.unwrap();
-        if entry.path().is_file() {
-            fs::copy(entry.path(), docs_dest.join(entry.file_name())).unwrap();
+    fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+            } else {
+                fs::copy(entry.path(), dst.join(entry.file_name()))?;
+            }
         }
+        Ok(())
     }
+
+    copy_dir_all(&docs_src, &docs_dest).unwrap();
 
     let readme_src = repo_root.join("README.md");
     if readme_src.exists() {
@@ -78,7 +86,7 @@ fn test_e2e_real_world_docs_validation() {
         ),
         (
             "Phase 10 release verification and task summary",
-            "phases.md",
+            "mvp-roadmap.md",
             5,
         ),
         (

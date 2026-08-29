@@ -95,7 +95,7 @@ When started as an MCP server (`memex serve --mcp`), Memex exposes two primary t
 
 ## 🏗️ Architecture
 
-For a deep dive into data structures, database schema, SQLite queries, parsing pipelines, and benchmark validation gates, check out the comprehensive [Architecture Design Document](docs/architecture.md).
+For a deep dive into data structures, database schema, SQLite queries, parsing pipelines, and benchmark validation gates, check out the comprehensive [Architecture Design Document](docs/architecture/architecture.md) or explore the [Documentation Hub](docs/README.md).
 
 ```mermaid
 graph TD
@@ -161,7 +161,7 @@ cargo bench --bench run_empirical_benchmark
 cargo test --test test_token_reduction_gate -- --ignored
 ```
 
-📊 **Empirical Performance Report:** Check out [`docs/benchmark-report.md`](docs/benchmark-report.md) for the full empirical benchmark analysis proving **98.19% token reduction** and **~38ms average query latency** measured on this repository.
+📊 **Empirical Performance Report:** Check out [`docs/benchmarks/benchmark-report.md`](docs/benchmarks/benchmark-report.md) for the full empirical benchmark analysis proving **98.19% token reduction** and **~38ms average query latency** measured on this repository.
 
 ---
 
