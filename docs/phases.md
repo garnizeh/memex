@@ -278,7 +278,7 @@ Implement interactive and automated agent configuration injection for Claude Cod
   - **Deliverable:** `CursorTarget` and `AntigravityTarget` structs.
   - **Verification:** Test verifying MCP config generation for both targets.
 
-- [ ] **TASK-8.5: CLI `memex install` Command (`src/cli/install.rs`)**
+- [x] **TASK-8.5: CLI `memex install` Command (`src/cli/install.rs`)**
   - **Description:** Implement `memex install` with interactive terminal prompts (or `--yes` non-interactive flag with `--target <ids>`).
   - **Deliverable:** CLI handler function for `Commands::Install`.
   - **Verification:** Test running `memex install --yes --target claude` in test environment.
