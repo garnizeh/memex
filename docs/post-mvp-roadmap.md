@@ -69,8 +69,8 @@ This document outlines a detailed technical roadmap to transition Memex from a f
    - Ensure all file I/O uses the `\\?\` prefix on Windows when paths exceed 260 characters.
    - Use `dunce` crate to normalize Windows paths safely before processing.
 3. **PowerShell Installer Hardening:**
-   - Add signature verification step to the PowerShell install script (`irm ... | iex`).
-   - Implement a rollback mechanism if the binary download fails mid-stream.
+   - Avoid executing unverified remote scripts via shell piping (`irm ... | iex`). Instead, download the installer to a staging file, verify its Authenticode signature or pinned SHA-256 hash, and then invoke execution.
+   - Validate the downloaded `memex.exe` binary digest before final installation and implement an automatic rollback mechanism on failure.
 
 ---
 
@@ -90,7 +90,7 @@ This document outlines a detailed technical roadmap to transition Memex from a f
    - Expose in `memex.json`:
      ```json
      "chunking": {
-       "strategy": "semantic", // or "fixed"
+       "strategy": "semantic",
        "max_tokens": 512,
        "overlap_tokens": 50,
        "min_chunk_size": 32
@@ -151,7 +151,7 @@ This document outlines a detailed technical roadmap to transition Memex from a f
 **Current State:** Local error logging only; no distributed tracing or standardized usage/performance analytics.  
 **Problem:** Without structured observability and telemetry, it is impossible to detect systemic performance regressions, monitor model inference bottlenecks across heterogeneous hardware, or understand token savings efficacy in real-world workloads.
 
-```
+```text
 ┌───────────────────────────────────────────────────────────────────────────────────┐
 │                           Memex Observability Architecture                         │
 └───────────────────────────────────────────────────────────────────────────────────┘
@@ -220,10 +220,10 @@ The following standard metrics will be instrumented across the engine:
 
 | Metric Name | Type | Unit | Description | Target |
 | :--- | :--- | :--- | :--- | :---: |
-| `memex_query_duration_seconds` | Histogram | Seconds | End-to-end latency for `search_documentation` | P95 < 50ms |
-| `memex_token_reduction_ratio` | Histogram | Ratio (0.0-1.0) | Token reduction percentage achieved per query | > 0.85 |
-| `memex_onnx_inference_duration_seconds` | Histogram | Seconds | Time spent generating embeddings in ONNX session | P95 < 25ms |
-| `memex_db_query_duration_seconds` | Histogram | Seconds | SQLite + sqlite-vec query execution time | P95 < 10ms |
+| `memex_query_duration_seconds` | Histogram | Seconds | End-to-end latency for `search_documentation` | P95 < 0.050s (< 50ms) |
+| `memex_token_reduction_ratio` | Histogram | Ratio (0.0-1.0) | Token reduction percentage achieved per query | > 0.90 (> 90%) |
+| `memex_onnx_inference_duration_seconds` | Histogram | Seconds | Time spent generating embeddings in ONNX session | P95 < 0.025s (< 25ms) |
+| `memex_db_query_duration_seconds` | Histogram | Seconds | SQLite + sqlite-vec query execution time | P95 < 0.010s (< 10ms) |
 | `memex_indexing_throughput_chunks_per_sec`| Gauge | Chunks/s | Rate of chunks parsed, embedded, and indexed | > 100/s (CPU) |
 | `memex_mcp_requests_total` | Counter | Requests | Count of MCP requests partitioned by tool and status | — |
 | `memex_cache_hit_ratio` | Gauge | Ratio (0.0-1.0) | Hit ratio for query embeddings and chunk cache | > 0.40 |
@@ -247,8 +247,8 @@ The following standard metrics will be instrumented across the engine:
 2. **Organization Indexes:**
    - Allow merging multiple local indexes into a "Team Index" stored in a shared network volume or S3 bucket (read-only for most, write-access for maintainers).
 3. **Access Control Lists (ACLs):**
-   - Tag chunks with visibility levels (`public`, `internal`, `confidential`).
-   - Enforce filtering at the SQL query level based on user identity tokens.
+   - Tag chunks with visibility levels (`public`, `internal`, `confidential`) within encrypted index manifests.
+   - Maintain client-side query-level filtering after local blob decryption using the authenticated user's local key hierarchy, preventing the relay server from inspecting plaintext metadata or violating E2EE guarantees.
 
 ### 4.2. Advanced AI Capabilities
 **Vision:** Moving from "Search" to "Reasoning".
@@ -310,8 +310,8 @@ To measure the success of these recommendations, track the following:
 1. **Adoption & Engagement:** Growth in active installs and aggregate MCP session duration.
 2. **Index Health & Reliability:** % of successful indexing runs without errors (Target: >99.5%).
 3. **Crash-Free Session Rate:** Telemetry-verified crash-free execution rate (Target: >99.9%).
-4. **Query Precision & Token Savings:** Maintain >90% validated token reduction and >0.85 Precision@5 across supported file formats.
-5. **Performance Governance:** Maintain P95 query latency < 50ms and telemetry dispatch overhead < 1ms.
+4. **Query Precision & Token Savings:** Maintain >90% (>0.90) validated token reduction and >0.85 Precision@5 across supported file formats.
+5. **Performance Governance:** Maintain P95 query latency < 0.050s (< 50ms) and telemetry dispatch overhead < 0.001s (< 1ms).
 6. **Telemetry Transparency:** 100% compliance with privacy-first standards (zero PII, zero code retention, full opt-out support).
 7. **Ecosystem Breadth:** Expand native support to >= 5 AI agents and >= 6 file formats.
 
