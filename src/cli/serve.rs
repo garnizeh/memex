@@ -173,7 +173,6 @@ mod tests {
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
-    use tokio::io::duplex;
 
     fn setup_mock_project() -> (TempDir, Database, Arc<EmbeddingEngine>) {
         let temp_dir = TempDir::new().unwrap();
