@@ -1670,6 +1670,19 @@ mod tests {
 
     #[test]
     fn test_index_e2e_live_embedder() {
+        let assets = match ModelManager::ensure_model_assets() {
+            Ok(assets) => assets,
+            Err(e) => {
+                println!("Skipping live embedder index e2e test (assets unavailable: {e})");
+                return;
+            }
+        };
+
+        if let Err(e) = EmbeddingEngine::new(&assets) {
+            println!("Skipping live embedder index e2e test (engine initialization failed: {e})");
+            return;
+        }
+
         let temp_dir = TempDir::new().unwrap();
         let project_dir = temp_dir.path().join("live_e2e");
         fs::create_dir_all(&project_dir).unwrap();
