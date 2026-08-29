@@ -114,10 +114,10 @@ pub fn bytes_to_vector(bytes: &[u8]) -> Result<Vec<f32>> {
         )));
     }
 
-    let mut vector = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        let arr: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
-        vector.push(f32::from_le_bytes(arr));
+    let (chunks, _) = bytes.as_chunks::<4>();
+    let mut vector = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        vector.push(f32::from_le_bytes(*chunk));
     }
 
     Ok(vector)
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_vector_bytes_roundtrip() {
-        let original: Vec<f32> = vec![0.0, -1.5, 3.14159, 100.25];
+        let original: Vec<f32> = vec![0.0, -1.5, std::f32::consts::PI, 100.25];
         let bytes = vector_to_bytes(&original);
         assert_eq!(bytes.len(), original.len() * 4);
 

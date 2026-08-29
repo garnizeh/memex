@@ -111,6 +111,11 @@ impl Database {
         crate::storage::writer::StorageWriter::new(&mut self.conn)
     }
 
+    /// Returns a [`StorageReader`] wrapping the database connection.
+    pub fn reader(&self) -> crate::storage::reader::StorageReader<'_> {
+        crate::storage::reader::StorageReader::new(&self.conn)
+    }
+
     /// Checks whether the connection was opened in read-only mode.
     pub fn is_readonly(&self) -> bool {
         self.readonly

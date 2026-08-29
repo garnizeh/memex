@@ -83,7 +83,7 @@ Implement the SQLite relational schema, WAL configuration, `sqlite-vec` virtual 
   - **Deliverable:** `StorageWriter` methods wrapping operations in `Transaction`.
   - **Verification:** Integration test asserting cascade deletion of chunks, edges, and vectors upon document deletion.
 
-- [ ] **TASK-2.5: Relational Reader & Vector KNN Queries (`src/storage/reader.rs`)**
+- [x] **TASK-2.5: Relational Reader & Vector KNN Queries (`src/storage/reader.rs`)**
   - **Description:** Implement KNN vector similarity search (`SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? ORDER BY distance LIMIT ?`) joined with `chunks` and `documents`.
   - **Deliverable:** `StorageReader::search_knn(embedding: &[f32], limit: usize) -> Result<Vec<SearchResult>>`.
   - **Verification:** Test inserting 10 synthetic vectors and verifying KNN search returns nearest neighbor IDs in sorted distance order.
