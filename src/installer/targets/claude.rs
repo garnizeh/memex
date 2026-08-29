@@ -168,38 +168,9 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
         .as_array_mut()
         .expect("UserPromptSubmit must be an array");
 
-    let memex_command_entry = serde_json::json!({
-        "hooks": [
-            {
-                "type": "command",
-                "command": "memex prompt-hook"
-            }
-        ]
-    });
-
-    let already_present = user_prompt_arr.iter().any(|entry| {
-        if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
-            inner_hooks.iter().any(|h| {
-                h.get("command")
-                    .and_then(|c| c.as_str())
-                    .map(|s| s.contains("memex"))
-                    .unwrap_or(false)
-            })
-        } else {
-            false
-        }
-    });
-
-    // Remove any previous entries with empty matcher or prompt-only for memex
+    // 1. Remove any old prompt-only or invalidly formatted entries for memex
     user_prompt_arr.retain(|entry| {
         if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
-            let is_old_memex_with_matcher = entry.get("matcher").is_some()
-                && inner_hooks.iter().any(|h| {
-                    h.get("command")
-                        .and_then(|c| c.as_str())
-                        .map(|s| s.contains("memex"))
-                        .unwrap_or(false)
-                });
             let is_memex_prompt = inner_hooks.iter().any(|h| {
                 h.get("type").and_then(|t| t.as_str()) == Some("prompt")
                     && h.get("prompt")
@@ -207,9 +178,32 @@ pub fn inject_claude_hooks(settings_path: &Path) -> Result<()> {
                         .map(|s| s.contains("Memex") || s.contains(".memex/"))
                         .unwrap_or(false)
             });
-            return !is_old_memex_with_matcher && !is_memex_prompt;
+            return !is_memex_prompt;
         }
         true
+    });
+
+    // 2. Check if a valid command hook for memex is present
+    let already_present = user_prompt_arr.iter().any(|entry| {
+        if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
+            inner_hooks.iter().any(|h| {
+                h.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.contains("memex prompt-hook"))
+                    .unwrap_or(false)
+            })
+        } else {
+            false
+        }
+    });
+
+    let memex_command_entry = serde_json::json!({
+        "hooks": [
+            {
+                "type": "command",
+                "command": "memex prompt-hook"
+            }
+        ]
     });
 
     if !already_present {
