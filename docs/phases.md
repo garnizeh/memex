@@ -68,7 +68,7 @@ Implement the SQLite relational schema, WAL configuration, `sqlite-vec` virtual 
   - **Deliverable:** `Database::open(path: &Path) -> Result<Database>` and `Database::open_readonly(path: &Path) -> Result<Database>`.
   - **Verification:** Unit test asserting PRAGMA values on an in-memory or temp SQLite connection.
 
-- [ ] **TASK-2.2: Database Schema & Migrations (`src/storage/schema.rs`)**
+- [x] **TASK-2.2: Database Schema & Migrations (`src/storage/schema.rs`)**
   - **Description:** Write schema initialization executing `CREATE TABLE IF NOT EXISTS` for `documents`, `chunks`, `edges`, indices (`idx_chunks_doc`, `idx_chunks_parent`, `idx_edges_target`, etc.), and `CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(...)`.
   - **Deliverable:** `schema::initialize_schema(conn: &Connection) -> Result<()>`.
   - **Verification:** Unit test executing schema creation twice sequentially (idempotency check) and inspecting `sqlite_master`.
@@ -359,7 +359,7 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 | Phase | Description | Task Count | Status |
 | :--- | :--- | :---: | :---: |
 | **Phase 1** | Foundations, Domain Models & Error Handling | 4 | Completed (4/4) |
-| **Phase 2** | Storage & Database Layer (`src/storage/`) | 6 | In Progress (1/6) |
+| **Phase 2** | Storage & Database Layer (`src/storage/`) | 6 | In Progress (2/6) |
 | **Phase 3** | File Discovery & Filtering (`src/discovery/`) | 4 | Pending |
 | **Phase 4** | Markdown Ingestion & Contextual Chunking (`src/ingestion/`) | 5 | Pending |
 | **Phase 5** | Local Embedding Engine (`src/ingestion/embedder.rs`) | 4 | Pending |
@@ -368,4 +368,4 @@ Optimize binary size, finalize Makefile/CI workflows, and perform end-to-end use
 | **Phase 8** | Agent Auto-Installer (`src/installer/`, `install`) | 5 | Pending |
 | **Phase 9** | Test Suite, Benchmarks & Efficiency Gate | 5 | Pending |
 | **Phase 10** | Polishing, Packaging & Release Verification | 4 | Pending |
-| **Total** | **Full MVP Scope** | **47 Tasks** | **5 / 47 Completed** |
+| **Total** | **Full MVP Scope** | **47 Tasks** | **6 / 47 Completed** |

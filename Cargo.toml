@@ -25,7 +25,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 
 # Database & Vectors
 rusqlite = { version = "0.40.2", features = ["bundled", "modern_sqlite"] }
-sqlite-vec = { version = "0.1.9", optional = true }
+sqlite-vec = "0.1.9"
 
 # ONNX Runtime & Embeddings
 ort = { version = "2.0.0-rc.13", default-features = false, features = ["download-binaries", "tls-rustls"] }
