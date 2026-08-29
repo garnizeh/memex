@@ -172,7 +172,7 @@ Integrate ONNX Runtime via `ort`, handle tokenizer loading, execute batched infe
   - **Deliverable:** `EmbeddingEngine::new(assets: &ModelAssets) -> Result<Self>`.
   - **Verification:** Test initializing session and verifying input/output tensor shapes.
 
-- [ ] **TASK-5.3: Tokenization & Attention Mask Pipeline**
+- [x] **TASK-5.3: Tokenization & Attention Mask Pipeline**
   - **Description:** Use `tokenizers` crate to tokenize text batches, apply padding to max sequence length (bounded at 256 tokens), and generate `input_ids` and `attention_mask` tensors.
   - **Deliverable:** `TokenizerWrapper::encode_batch(&[&str]) -> Result<TokenizedBatch>`.
   - **Verification:** Test tokenizing batch with variable length strings asserting matching tensor shapes.

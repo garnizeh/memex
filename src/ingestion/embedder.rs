@@ -14,6 +14,12 @@ use crate::errors::{MemexError, Result};
 /// Default model name for local embeddings.
 pub const DEFAULT_MODEL_NAME: &str = "all-MiniLM-L6-v2";
 
+/// Maximum token sequence length bounded for the embedding model (all-MiniLM-L6-v2 max sequence length is 256 tokens).
+pub const MAX_SEQUENCE_LENGTH: usize = 256;
+
+/// Default embedding batch size.
+pub const DEFAULT_BATCH_SIZE: usize = 64;
+
 /// Standard ONNX model file name.
 pub const MODEL_FILE_NAME: &str = "model.onnx";
 
@@ -27,6 +33,124 @@ pub const DEFAULT_MODEL_URL: &str =
 /// Default Hugging Face repository URL for all-MiniLM-L6-v2 tokenizer config.
 pub const DEFAULT_TOKENIZER_URL: &str =
     "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json";
+
+/// Tokenized batch containing 1D flattened vectors and sequence dimensions suitable for ONNX tensor inputs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenizedBatch {
+    /// Batch size (number of input sequences).
+    pub batch_size: usize,
+    /// Sequence length after padding/truncation.
+    pub seq_len: usize,
+    /// Flattened input token IDs of shape `[batch_size, seq_len]`.
+    pub input_ids: Vec<i64>,
+    /// Flattened attention mask of shape `[batch_size, seq_len]`, where 1 indicates an active token and 0 indicates padding.
+    pub attention_mask: Vec<i64>,
+    /// Flattened token type IDs of shape `[batch_size, seq_len]` (all zeros for single-sequence BERT/MiniLM).
+    pub token_type_ids: Vec<i64>,
+}
+
+impl TokenizedBatch {
+    /// Returns the shape tuple `[batch_size, seq_len]`.
+    pub fn shape(&self) -> (usize, usize) {
+        (self.batch_size, self.seq_len)
+    }
+
+    /// Returns `true` if the batch is empty (`batch_size == 0`).
+    pub fn is_empty(&self) -> bool {
+        self.batch_size == 0
+    }
+}
+
+/// Thread-safe wrapper over `tokenizers::Tokenizer` providing batched tokenization, padding, and truncation.
+#[derive(Debug, Clone)]
+pub struct TokenizerWrapper {
+    /// Inner fast tokenizer instance.
+    pub tokenizer: Arc<Tokenizer>,
+    /// Maximum allowed sequence length (defaults to 256).
+    pub max_seq_len: usize,
+}
+
+impl TokenizerWrapper {
+    /// Creates a new `TokenizerWrapper` wrapping an `Arc<Tokenizer>` with default max sequence length (256).
+    pub fn new(tokenizer: Arc<Tokenizer>) -> Self {
+        Self {
+            tokenizer,
+            max_seq_len: MAX_SEQUENCE_LENGTH,
+        }
+    }
+
+    /// Creates a new `TokenizerWrapper` with a custom maximum sequence length.
+    pub fn with_max_seq_len(tokenizer: Arc<Tokenizer>, max_seq_len: usize) -> Self {
+        Self {
+            tokenizer,
+            max_seq_len,
+        }
+    }
+
+    /// Encodes a batch of string slices into `TokenizedBatch`, handling truncation, batch-wide padding,
+    /// and generating `input_ids`, `attention_mask`, and `token_type_ids`.
+    pub fn encode_batch(&self, texts: &[&str]) -> Result<TokenizedBatch> {
+        let batch_size = texts.len();
+        if batch_size == 0 {
+            return Ok(TokenizedBatch {
+                batch_size: 0,
+                seq_len: 0,
+                input_ids: Vec::new(),
+                attention_mask: Vec::new(),
+                token_type_ids: Vec::new(),
+            });
+        }
+
+        // Tokenize all texts in parallel or sequence using the underlying Tokenizer
+        let encodings = self
+            .tokenizer
+            .encode_batch(texts.to_vec(), true)
+            .map_err(|e| MemexError::TokenizerError(format!("Failed to encode batch: {e}")))?;
+
+        // Find max sequence length in this batch, bounded by self.max_seq_len and at least 1
+        let max_batch_len = encodings
+            .iter()
+            .map(|e| e.get_ids().len().min(self.max_seq_len))
+            .max()
+            .unwrap_or(0)
+            .max(1);
+
+        let total_elements = batch_size * max_batch_len;
+        let mut input_ids = vec![0i64; total_elements];
+        let mut attention_mask = vec![0i64; total_elements];
+        let mut token_type_ids = vec![0i64; total_elements];
+
+        for (row_idx, encoding) in encodings.iter().enumerate() {
+            let ids = encoding.get_ids();
+            let masks = encoding.get_attention_mask();
+            let type_ids = encoding.get_type_ids();
+
+            let token_count = ids.len().min(self.max_seq_len).min(max_batch_len);
+            let row_offset = row_idx * max_batch_len;
+
+            for i in 0..token_count {
+                input_ids[row_offset + i] = ids[i] as i64;
+                attention_mask[row_offset + i] = masks[i] as i64;
+                if i < type_ids.len() {
+                    token_type_ids[row_offset + i] = type_ids[i] as i64;
+                }
+            }
+        }
+
+        Ok(TokenizedBatch {
+            batch_size,
+            seq_len: max_batch_len,
+            input_ids,
+            attention_mask,
+            token_type_ids,
+        })
+    }
+
+    /// Encodes a single string slice into a `TokenizedBatch` with batch_size = 1.
+    pub fn encode(&self, text: &str) -> Result<TokenizedBatch> {
+        self.encode_batch(&[text])
+    }
+}
 
 /// Resolved local filesystem paths to the embedding model and tokenizer assets.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +168,8 @@ pub struct EmbeddingEngine {
     pub session: Arc<Session>,
     /// Fast tokenizer instance wrapped in `Arc`.
     pub tokenizer: Arc<Tokenizer>,
+    /// Tokenizer wrapper for batched tensor encoding.
+    pub tokenizer_wrapper: TokenizerWrapper,
     /// Model assets used to initialize this engine.
     pub assets: ModelAssets,
 }
@@ -104,9 +230,13 @@ impl EmbeddingEngine {
             ))
         })?;
 
+        let tokenizer_arc = Arc::new(tokenizer);
+        let tokenizer_wrapper = TokenizerWrapper::new(Arc::clone(&tokenizer_arc));
+
         Ok(Self {
             session: Arc::new(session),
-            tokenizer: Arc::new(tokenizer),
+            tokenizer: tokenizer_arc,
+            tokenizer_wrapper,
             assets: assets.clone(),
         })
     }
@@ -119,6 +249,11 @@ impl EmbeddingEngine {
     /// Returns a reference to the wrapped Tokenizer.
     pub fn tokenizer(&self) -> &Arc<Tokenizer> {
         &self.tokenizer
+    }
+
+    /// Returns a reference to the TokenizerWrapper.
+    pub fn tokenizer_wrapper(&self) -> &TokenizerWrapper {
+        &self.tokenizer_wrapper
     }
 
     /// Returns the ModelAssets used by this engine.
@@ -592,5 +727,136 @@ mod tests {
             }
             err => panic!("Unexpected error: {err:?}"),
         }
+    }
+
+    #[test]
+    fn test_tokenizer_wrapper_empty_batch() {
+        let tokenizer = tokenizers::Tokenizer::new(tokenizers::models::bpe::BPE::default());
+        let wrapper = TokenizerWrapper::new(Arc::new(tokenizer));
+
+        let batch = wrapper.encode_batch(&[]).expect("empty batch encoding");
+        assert_eq!(batch.batch_size, 0);
+        assert_eq!(batch.seq_len, 0);
+        assert!(batch.is_empty());
+        assert_eq!(batch.shape(), (0, 0));
+        assert!(batch.input_ids.is_empty());
+        assert!(batch.attention_mask.is_empty());
+        assert!(batch.token_type_ids.is_empty());
+    }
+
+    #[test]
+    fn test_tokenizer_wrapper_batch_padding_and_shapes() {
+        use tokenizers::models::wordpiece::WordPiece;
+        use tokenizers::Tokenizer;
+
+        let vocab = [
+            ("[PAD]".to_string(), 0),
+            ("[UNK]".to_string(), 1),
+            ("[CLS]".to_string(), 2),
+            ("[SEP]".to_string(), 3),
+            ("hello".to_string(), 4),
+            ("world".to_string(), 5),
+            ("memex".to_string(), 6),
+            ("rust".to_string(), 7),
+        ];
+
+        let wp = WordPiece::builder()
+            .vocab(vocab)
+            .unk_token("[UNK]".to_string())
+            .build()
+            .expect("wp build failed");
+
+        let mut tokenizer = Tokenizer::new(wp);
+        tokenizer.with_pre_tokenizer(Some(tokenizers::pre_tokenizers::whitespace::Whitespace));
+
+        let wrapper = TokenizerWrapper::new(Arc::new(tokenizer));
+
+        let texts = &["hello world", "memex", "hello world memex rust"];
+
+        let batch = wrapper.encode_batch(texts).expect("encode batch failed");
+        assert_eq!(batch.batch_size, 3);
+        // "hello world memex rust" has 4 tokens
+        assert_eq!(batch.seq_len, 4);
+        assert_eq!(batch.shape(), (3, 4));
+        assert_eq!(batch.input_ids.len(), 3 * 4);
+        assert_eq!(batch.attention_mask.len(), 3 * 4);
+        assert_eq!(batch.token_type_ids.len(), 3 * 4);
+
+        // Row 0: "hello world" -> 2 tokens, 2 padded
+        assert_eq!(&batch.input_ids[0..4], &[4, 5, 0, 0]);
+        assert_eq!(&batch.attention_mask[0..4], &[1, 1, 0, 0]);
+
+        // Row 1: "memex" -> 1 token, 3 padded
+        assert_eq!(&batch.input_ids[4..8], &[6, 0, 0, 0]);
+        assert_eq!(&batch.attention_mask[4..8], &[1, 0, 0, 0]);
+
+        // Row 2: "hello world memex rust" -> 4 tokens, 0 padded
+        assert_eq!(&batch.input_ids[8..12], &[4, 5, 6, 7]);
+        assert_eq!(&batch.attention_mask[8..12], &[1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn test_tokenizer_wrapper_max_seq_len_truncation() {
+        use tokenizers::models::wordpiece::WordPiece;
+        use tokenizers::Tokenizer;
+
+        let vocab = [
+            ("[PAD]".to_string(), 0),
+            ("[UNK]".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+            ("c".to_string(), 4),
+            ("d".to_string(), 5),
+        ];
+
+        let wp = WordPiece::builder()
+            .vocab(vocab)
+            .unk_token("[UNK]".to_string())
+            .build()
+            .expect("wp build failed");
+
+        let mut tokenizer = Tokenizer::new(wp);
+        tokenizer.with_pre_tokenizer(Some(tokenizers::pre_tokenizers::whitespace::Whitespace));
+
+        // Set max sequence length to 2
+        let wrapper = TokenizerWrapper::with_max_seq_len(Arc::new(tokenizer), 2);
+
+        let texts = &["a b c d"];
+        let batch = wrapper.encode_batch(texts).expect("encode failed");
+
+        assert_eq!(batch.batch_size, 1);
+        assert_eq!(batch.seq_len, 2);
+        assert_eq!(batch.input_ids, vec![2, 3]);
+        assert_eq!(batch.attention_mask, vec![1, 1]);
+    }
+
+    #[test]
+    fn test_tokenizer_wrapper_single_encode() {
+        use tokenizers::models::wordpiece::WordPiece;
+        use tokenizers::Tokenizer;
+
+        let vocab = [
+            ("[PAD]".to_string(), 0),
+            ("[UNK]".to_string(), 1),
+            ("test".to_string(), 2),
+        ];
+
+        let wp = WordPiece::builder()
+            .vocab(vocab)
+            .unk_token("[UNK]".to_string())
+            .build()
+            .expect("wp build failed");
+
+        let mut tokenizer = Tokenizer::new(wp);
+        tokenizer.with_pre_tokenizer(Some(tokenizers::pre_tokenizers::whitespace::Whitespace));
+
+        let wrapper = TokenizerWrapper::new(Arc::new(tokenizer));
+        let batch = wrapper.encode("test").expect("encode failed");
+
+        assert_eq!(batch.batch_size, 1);
+        assert_eq!(batch.seq_len, 1);
+        assert_eq!(batch.input_ids, vec![2]);
+        assert_eq!(batch.attention_mask, vec![1]);
+        assert_eq!(batch.token_type_ids, vec![0]);
     }
 }
