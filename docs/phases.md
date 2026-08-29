@@ -210,7 +210,7 @@ Orchestrate the ingestion, delta comparison, transaction commit, and terminal re
   - **Deliverable:** CLI handler function for `Commands::Init`.
   - **Verification:** End-to-end test running `memex init` on a temporary project directory.
 
-- [ ] **TASK-6.5: CLI `memex index` Command Implementation (`src/cli/index.rs`)**
+- [x] **TASK-6.5: CLI `memex index` Command Implementation (`src/cli/index.rs`)**
   - **Description:** Implement `memex index [path]` handling: (1) find nearest `.memex/` parent root, (2) run incremental delta indexing, (3) respect `--quiet` flag, (4) format CLI stats output.
   - **Deliverable:** CLI handler function for `Commands::Index`.
   - **Verification:** Test running `index` twice, verifying 0 changes on second run ("Already up to date").

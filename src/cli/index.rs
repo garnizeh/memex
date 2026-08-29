@@ -1,7 +1,9 @@
+use crate::config::MemexConfig;
 use crate::discovery::hash::{compute_bytes_hash, compute_file_hash};
+use crate::discovery::FileDiscovery;
 use crate::errors::{MemexError, Result};
 use crate::ingestion::chunker::ContextualChunker;
-use crate::ingestion::embedder::{EmbeddingEngine, EMBEDDING_DIM};
+use crate::ingestion::embedder::{EmbeddingEngine, ModelManager, EMBEDDING_DIM};
 use crate::ingestion::parser::MarkdownParser;
 use crate::models::{Chunk, Document, Edge};
 use crate::storage::db::Database;
@@ -9,6 +11,16 @@ use crate::storage::writer::StorageWriter;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Format a duration nicely for CLI output (e.g. "2.3s" or "150ms").
+pub fn format_duration(d: Duration) -> String {
+    let secs = d.as_secs_f64();
+    if secs < 0.001 {
+        format!("{:.2}ms", secs * 1000.0)
+    } else {
+        format!("{:.1}s", secs)
+    }
+}
 
 /// Represents the categorized differences between files discovered on disk
 /// and documents previously stored in the database.
@@ -563,13 +575,145 @@ impl<'a> IndexCoordinator<'a> {
     }
 }
 
-/// Executes the `index` command.
-pub fn run_index(path: &Path, quiet: bool, verbose: bool) -> Result<()> {
-    if !quiet {
-        eprintln!("Running index at {:?} (verbose: {})", path, verbose);
+/// Finds the nearest Memex project root containing `.memex/memex.db` by walking
+/// up parent directories from the specified starting path.
+pub fn find_project_root(path: &Path) -> Result<PathBuf> {
+    if !path.exists() {
+        return Err(MemexError::DiscoveryError {
+            path: path.display().to_string(),
+            reason: "Target path does not exist".to_string(),
+        });
     }
-    // Will be fully orchestrated in subsequent Phase 6 tasks
-    Ok(())
+
+    let absolute_path = if path.is_relative() {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+
+    let resolved = absolute_path.canonicalize().unwrap_or(absolute_path);
+
+    let start_dir = if resolved.is_file() {
+        resolved.parent().unwrap_or(&resolved)
+    } else {
+        &resolved
+    };
+
+    let mut current = Some(start_dir);
+    while let Some(dir) = current {
+        let db_path = dir.join(".memex").join("memex.db");
+        if db_path.is_file() || db_path.exists() {
+            return Ok(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+
+    Err(MemexError::NotInitialized {
+        path: path.display().to_string(),
+    })
+}
+
+/// Performs incremental indexing of a project root directory using a provided [`ChunkEmbedder`].
+///
+/// Steps:
+/// 1. Verifies that the project is initialized (`<root>/.memex/memex.db` exists)
+/// 2. Opens the SQLite database
+/// 3. Loads project configuration (`memex.json`)
+/// 4. Discovers all markdown documentation files on disk
+/// 5. Classifies delta between disk and database (added, modified, removed, unchanged)
+/// 6. Processes delta mutations and writes updates atomically to the database
+pub fn index_project_with_embedder<E: ChunkEmbedder>(
+    root: &Path,
+    embedder: &E,
+) -> Result<IndexStats> {
+    let memex_dir = root.join(".memex");
+    let db_path = memex_dir.join("memex.db");
+    if !db_path.exists() {
+        return Err(MemexError::NotInitialized {
+            path: root.display().to_string(),
+        });
+    }
+
+    let mut db = Database::open(&db_path)?;
+    let config = MemexConfig::load_or_default(root);
+    let scanned_files = FileDiscovery::scan(root, &config)?;
+
+    let delta = DeltaClassifier::compute_with_root(root, &scanned_files, &db)?;
+    let stats = IndexCoordinator::new(root, &mut db).process_delta(&delta, embedder)?;
+
+    Ok(stats)
+}
+
+/// Incrementally updates the index for the project root using the local ONNX embedding engine.
+pub fn index_project(root: &Path) -> Result<IndexStats> {
+    let assets = ModelManager::ensure_model_assets()?;
+    let engine = EmbeddingEngine::new(&assets)?;
+    index_project_with_embedder(root, &engine)
+}
+
+/// Executes the `index` command using a custom [`ChunkEmbedder`], handling root discovery and formatting CLI output.
+pub fn run_index_with_embedder<E: ChunkEmbedder>(
+    path: &Path,
+    quiet: bool,
+    verbose: bool,
+    embedder: &E,
+) -> Result<IndexStats> {
+    let root = find_project_root(path)?;
+
+    if verbose && !quiet {
+        eprintln!("Found Memex project root at '{}'", root.display());
+    }
+
+    let stats = index_project_with_embedder(&root, embedder)?;
+
+    if !quiet {
+        if !stats.has_changes() {
+            println!("ℹ Already up to date");
+        } else {
+            let file_str = if stats.total_mutations() == 1 {
+                "file"
+            } else {
+                "files"
+            };
+            println!("✓ Synced {} changed {}", stats.total_mutations(), file_str);
+            println!(
+                "  Added: {}, Modified: {}, Removed: {} — {} nodes in {}",
+                stats.files_added,
+                stats.files_modified,
+                stats.files_removed,
+                stats.chunks_indexed,
+                format_duration(stats.duration)
+            );
+        }
+
+        if stats.has_errors() {
+            eprintln!(
+                "⚠ Encountered {} non-fatal error(s) during indexing (see .memex/errors.log)",
+                stats.files_failed
+            );
+        }
+
+        if verbose {
+            eprintln!("  Unchanged files: {}", stats.files_unchanged);
+            eprintln!("  Vector embeddings: {}", stats.vectors_indexed);
+            eprintln!("  Edges created: {}", stats.edges_created);
+            eprintln!(
+                "  Database location: {}",
+                root.join(".memex").join("memex.db").display()
+            );
+        }
+    }
+
+    Ok(stats)
+}
+
+/// Executes the `index` command and formats user-facing CLI output.
+pub fn run_index(path: &Path, quiet: bool, verbose: bool) -> Result<IndexStats> {
+    let assets = ModelManager::ensure_model_assets()?;
+    let engine = EmbeddingEngine::new(&assets)?;
+    run_index_with_embedder(path, quiet, verbose, &engine)
 }
 
 #[cfg(test)]
@@ -1307,5 +1451,263 @@ mod tests {
         // errors.log should be present
         let errors_log = temp_dir.path().join(".memex").join("errors.log");
         assert!(errors_log.exists());
+    }
+
+    #[test]
+    fn test_find_project_root_direct_and_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("my_proj");
+        let nested_dir = project_dir.join("docs").join("architecture").join("guides");
+        fs::create_dir_all(&nested_dir).unwrap();
+
+        // Create .memex/memex.db in project_dir
+        let memex_dir = project_dir.join(".memex");
+        fs::create_dir_all(&memex_dir).unwrap();
+        let db_path = memex_dir.join("memex.db");
+        File::create(&db_path).unwrap();
+
+        // 1. Direct path lookup
+        let found_root = find_project_root(&project_dir).unwrap();
+        assert_eq!(found_root, project_dir.canonicalize().unwrap());
+
+        // 2. Nested directory lookup (walk up parent chain)
+        let found_from_nested = find_project_root(&nested_dir).unwrap();
+        assert_eq!(found_from_nested, project_dir.canonicalize().unwrap());
+
+        // 3. File path lookup inside project
+        let file_path = nested_dir.join("overview.md");
+        File::create(&file_path).unwrap();
+        let found_from_file = find_project_root(&file_path).unwrap();
+        assert_eq!(found_from_file, project_dir.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_find_project_root_not_initialized_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        let uninit_dir = temp_dir.path().join("uninitialized");
+        fs::create_dir_all(&uninit_dir).unwrap();
+
+        let err = find_project_root(&uninit_dir).unwrap_err();
+        assert!(matches!(err, MemexError::NotInitialized { .. }));
+        assert!(err.to_string().contains("Memex not initialized"));
+    }
+
+    #[test]
+    fn test_find_project_root_nonexistent_path_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        let non_existent = temp_dir.path().join("does_not_exist");
+
+        let err = find_project_root(&non_existent).unwrap_err();
+        assert!(matches!(err, MemexError::DiscoveryError { .. }));
+    }
+
+    #[test]
+    fn test_index_twice_verifies_already_up_to_date() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&project_dir).unwrap();
+
+        // Initialize project with init_project_with_embedder
+        create_test_file(
+            &project_dir,
+            "README.md",
+            b"# Main Project\n\nWelcome to documentation.",
+        );
+        create_test_file(
+            &project_dir,
+            "docs/guide.md",
+            b"# Guide\n\nHow to get started with this system.",
+        );
+
+        let init_stats = crate::cli::init::init_project_with_embedder(
+            &project_dir,
+            false,
+            false,
+            &dummy_embedder(),
+        )
+        .unwrap();
+
+        assert_eq!(init_stats.files_added, 2);
+        assert_eq!(init_stats.chunks_indexed, 4);
+
+        // Run index for the first time without any changes
+        let index_stats_1 =
+            run_index_with_embedder(&project_dir, false, true, &dummy_embedder()).unwrap();
+
+        assert!(!index_stats_1.has_changes());
+        assert_eq!(index_stats_1.files_added, 0);
+        assert_eq!(index_stats_1.files_modified, 0);
+        assert_eq!(index_stats_1.files_removed, 0);
+        assert_eq!(index_stats_1.files_unchanged, 2);
+
+        // Run index a second time, verifying 0 changes on second run ("Already up to date")
+        let index_stats_2 =
+            run_index_with_embedder(&project_dir, false, false, &dummy_embedder()).unwrap();
+
+        assert!(!index_stats_2.has_changes());
+        assert_eq!(index_stats_2.files_added, 0);
+        assert_eq!(index_stats_2.files_modified, 0);
+        assert_eq!(index_stats_2.files_removed, 0);
+        assert_eq!(index_stats_2.files_unchanged, 2);
+    }
+
+    #[test]
+    fn test_index_incremental_cycle_add_modify_remove() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("proj_lifecycle");
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let f1 = create_test_file(&project_dir, "doc1.md", b"# Document 1\n\nInitial version.");
+        let _f2 = create_test_file(&project_dir, "doc2.md", b"# Document 2\n\nDoc 2 version.");
+
+        crate::cli::init::init_project_with_embedder(
+            &project_dir,
+            false,
+            false,
+            &dummy_embedder(),
+        )
+        .unwrap();
+
+        // 1. Modify doc1.md and add doc3.md
+        create_test_file(&project_dir, "doc1.md", b"# Document 1\n\nUpdated version with more detail.");
+        let f3 = create_test_file(&project_dir, "doc3.md", b"# Document 3\n\nBrand new document.");
+
+        let stats_1 =
+            run_index_with_embedder(&project_dir, false, false, &dummy_embedder()).unwrap();
+
+        assert!(stats_1.has_changes());
+        assert_eq!(stats_1.files_added, 1);
+        assert_eq!(stats_1.files_modified, 1);
+        assert_eq!(stats_1.files_removed, 0);
+        assert_eq!(stats_1.files_unchanged, 1);
+
+        // 2. Remove doc3.md
+        fs::remove_file(&f3).unwrap();
+
+        let stats_2 =
+            run_index_with_embedder(&project_dir, false, false, &dummy_embedder()).unwrap();
+
+        assert!(stats_2.has_changes());
+        assert_eq!(stats_2.files_added, 0);
+        assert_eq!(stats_2.files_modified, 0);
+        assert_eq!(stats_2.files_removed, 1);
+        assert_eq!(stats_2.files_unchanged, 2);
+
+        // 3. Re-run without changes -> 0 changes
+        let stats_3 =
+            run_index_with_embedder(&project_dir, true, false, &dummy_embedder()).unwrap();
+
+        assert!(!stats_3.has_changes());
+        assert_eq!(stats_3.files_unchanged, 2);
+    }
+
+    #[test]
+    fn test_index_uninitialized_directory_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let uninit_dir = temp_dir.path().join("uninitialized");
+        fs::create_dir_all(&uninit_dir).unwrap();
+
+        let err = run_index_with_embedder(&uninit_dir, false, false, &dummy_embedder()).unwrap_err();
+        assert!(matches!(err, MemexError::NotInitialized { .. }));
+    }
+
+    #[test]
+    fn test_index_respects_quiet_and_verbose_flags() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("quiet_test");
+        fs::create_dir_all(&project_dir).unwrap();
+
+        create_test_file(&project_dir, "doc.md", b"# Doc\n\nContent.");
+
+        crate::cli::init::init_project_with_embedder(
+            &project_dir,
+            false,
+            false,
+            &dummy_embedder(),
+        )
+        .unwrap();
+
+        // Test with quiet = true (should not crash or fail)
+        let stats = run_index_with_embedder(&project_dir, true, false, &dummy_embedder()).unwrap();
+        assert_eq!(stats.files_unchanged, 1);
+
+        // Test with quiet = false, verbose = true
+        let stats_verbose =
+            run_index_with_embedder(&project_dir, false, true, &dummy_embedder()).unwrap();
+        assert_eq!(stats_verbose.files_unchanged, 1);
+    }
+
+    #[test]
+    fn test_index_with_config_excludes_and_includes() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("cfg_proj");
+        fs::create_dir_all(&project_dir).unwrap();
+
+        create_test_file(&project_dir, "allowed.md", b"# Allowed\n\nKeep me.");
+        create_test_file(&project_dir, "ignored/test.md", b"# Ignored\n\nSkip me.");
+        create_test_file(
+            &project_dir,
+            "memex.json",
+            br#"{"exclude": ["ignored/"]}"#,
+        );
+
+        let init_stats = crate::cli::init::init_project_with_embedder(
+            &project_dir,
+            false,
+            false,
+            &dummy_embedder(),
+        )
+        .unwrap();
+        assert_eq!(init_stats.files_added, 1);
+
+        // Add another ignored file
+        create_test_file(&project_dir, "ignored/another.md", b"# Ignored 2\n\nSkip me too.");
+
+        let index_stats =
+            run_index_with_embedder(&project_dir, false, false, &dummy_embedder()).unwrap();
+        assert!(!index_stats.has_changes());
+        assert_eq!(index_stats.files_unchanged, 1);
+    }
+
+    #[test]
+    fn test_index_e2e_live_embedder() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("live_e2e");
+        fs::create_dir_all(&project_dir).unwrap();
+
+        create_test_file(
+            &project_dir,
+            "intro.md",
+            b"# Introduction\n\nThis is a real live embedder test for indexing.",
+        );
+
+        crate::cli::init::run_init(&project_dir, false, false).unwrap();
+
+        // Run index twice
+        let stats1 = run_index(&project_dir, false, false).unwrap();
+        assert!(!stats1.has_changes());
+        assert_eq!(stats1.files_unchanged, 1);
+
+        // Add a new file and modify intro.md
+        create_test_file(
+            &project_dir,
+            "intro.md",
+            b"# Introduction\n\nThis is a modified live embedder test for indexing.",
+        );
+        create_test_file(
+            &project_dir,
+            "feature.md",
+            b"# Features\n\nDetailed feature list with neural search capabilities.",
+        );
+
+        let stats2 = run_index(&project_dir, false, false).unwrap();
+        assert_eq!(stats2.files_added, 1);
+        assert_eq!(stats2.files_modified, 1);
+        assert_eq!(stats2.files_removed, 0);
+
+        // Verify again with run_index that it's now up to date
+        let stats3 = run_index(&project_dir, true, false).unwrap();
+        assert!(!stats3.has_changes());
+        assert_eq!(stats3.files_unchanged, 2);
     }
 }
