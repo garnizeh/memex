@@ -1,6 +1,5 @@
-use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -41,41 +40,16 @@ pub struct HookSpecificOutput {
     pub additional_context: Option<String>,
 }
 
-fn log_debug(msg: &str) {
-    if let Ok(home) = std::env::var("HOME") {
-        let log_file = Path::new(&home).join(".memex_prompt_hook.log");
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_file) {
-            let duration = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            let _ = writeln!(
-                file,
-                "[{}.{:03}] {msg}",
-                duration.as_secs(),
-                duration.subsec_millis()
-            );
-        }
-    }
-}
-
 /// Executes the `memex prompt-hook` CLI command.
 ///
 /// Reads user prompt from stdin (JSON or plain text), finds the project root,
 /// queries top-k documentation chunks using semantic search, and outputs
-/// structured additional context to stdout for Claude Code.
+/// structured XML context to stdout for Claude Code.
 pub fn run_prompt_hook() -> Result<()> {
     let mut stdin_buffer = String::new();
-    let read_res = io::stdin().read_to_string(&mut stdin_buffer);
-
-    log_debug(&format!(
-        "Invoked memex prompt-hook. stdin read result: {:?}, raw length: {}, content: {:?}",
-        read_res,
-        stdin_buffer.len(),
-        stdin_buffer
-    ));
+    let _ = io::stdin().read_to_string(&mut stdin_buffer);
 
     let parsed_input = serde_json::from_str::<PromptHookInput>(&stdin_buffer).ok();
-    log_debug(&format!("Parsed input JSON: {:?}", parsed_input));
 
     let prompt_text = if let Some(ref parsed) = parsed_input {
         parsed
@@ -88,10 +62,7 @@ pub fn run_prompt_hook() -> Result<()> {
         stdin_buffer.trim().to_string()
     };
 
-    log_debug(&format!("Extracted prompt text: {:?}", prompt_text));
-
     if prompt_text.is_empty() {
-        log_debug("Prompt text is empty. Exiting without output.");
         return Ok(());
     }
 
@@ -101,20 +72,9 @@ pub fn run_prompt_hook() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
-    log_debug(&format!("Working directory for project search: {:?}", cwd));
-
     let root = match find_project_root(&cwd) {
-        Ok(r) => {
-            log_debug(&format!("Found project root: {:?}", r));
-            r
-        }
-        Err(e) => {
-            log_debug(&format!(
-                "Failed to find project root from {:?}: {:?}",
-                cwd, e
-            ));
-            return Ok(());
-        }
+        Ok(r) => r,
+        Err(_) => return Ok(()),
     };
 
     let mut db_path = root.join(".memex").join("memex.db");
@@ -123,54 +83,32 @@ pub fn run_prompt_hook() -> Result<()> {
         if alt.exists() {
             db_path = alt;
         } else {
-            log_debug(&format!("No database found at {:?}", db_path));
             return Ok(());
         }
     }
 
-    log_debug(&format!("Opening database at {:?}", db_path));
     let db = match Database::open_readonly(&db_path) {
         Ok(d) => d,
-        Err(e) => {
-            log_debug(&format!("Failed to open DB: {:?}", e));
-            return Ok(());
-        }
+        Err(_) => return Ok(()),
     };
 
     let assets = match ModelManager::ensure_model_assets() {
         Ok(a) => a,
-        Err(e) => {
-            log_debug(&format!("Failed to ensure model assets: {:?}", e));
-            return Ok(());
-        }
+        Err(_) => return Ok(()),
     };
 
     let engine = match EmbeddingEngine::new(&assets) {
         Ok(e) => e,
-        Err(e) => {
-            log_debug(&format!("Failed to create EmbeddingEngine: {:?}", e));
-            return Ok(());
-        }
+        Err(_) => return Ok(()),
     };
 
     let reader = StorageReader::new(db.conn());
-    log_debug(&format!(
-        "Executing semantic search for prompt: {:?}",
-        prompt_text
-    ));
     let results = match search_documentation_with_reader(&reader, &engine, &prompt_text, 3) {
-        Ok(r) => {
-            log_debug(&format!("Search completed with {} results", r.len()));
-            r
-        }
-        Err(e) => {
-            log_debug(&format!("Search failed: {:?}", e));
-            return Ok(());
-        }
+        Ok(r) => r,
+        Err(_) => return Ok(()),
     };
 
     if results.is_empty() {
-        log_debug("No search results found. Exiting without output.");
         return Ok(());
     }
 
@@ -213,7 +151,6 @@ pub fn run_prompt_hook() -> Result<()> {
     }
     xml_output.push_str("\n</memex_context>\n");
 
-    log_debug(&format!("Writing XML output to stdout:\n{}", xml_output));
     let mut stdout = io::stdout().lock();
     let _ = writeln!(stdout, "{}", xml_output);
     let _ = stdout.flush();
@@ -227,7 +164,6 @@ pub fn run_prompt_hook() -> Result<()> {
         }),
     };
     if let Ok(json_str) = serde_json::to_string(&output) {
-        log_debug(&format!("Writing output JSON to stdout: {}", json_str));
         let mut stdout = io::stdout().lock();
         let _ = writeln!(stdout, "{}", json_str);
         let _ = stdout.flush();
