@@ -16,14 +16,18 @@ fn main() {
     println!("=== Memex Empirical Real-World Benchmark Runner ===");
 
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let db_path = repo_root.join(".memex").join("memex.db");
-
+    let mut db_path = repo_root.join(".memex").join("memex.db");
     if !db_path.exists() {
-        eprintln!(
-            "Error: Database not found at {:?}. Please run `memex init .` first.",
-            db_path
-        );
-        std::process::exit(1);
+        let legacy_db_path = repo_root.join(".memex").join("index.db");
+        if legacy_db_path.exists() {
+            db_path = legacy_db_path;
+        } else {
+            eprintln!(
+                "Error: Database not found at {:?}. Please run `memex init .` first.",
+                db_path
+            );
+            std::process::exit(1);
+        }
     }
 
     let bpe = cl100k_base().expect("Failed to load cl100k_base tokenizer");
