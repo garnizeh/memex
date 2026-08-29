@@ -64,6 +64,11 @@ name = "bench_query"
 harness = false
 required-features = []
 
+[[bench]]
+name = "run_empirical_benchmark"
+harness = false
+required-features = []
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

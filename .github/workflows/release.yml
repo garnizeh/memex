@@ -28,7 +28,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
@@ -58,10 +58,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: memex-macos-arm64.tar.gz
-            binary_name: memex
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            artifact_name: memex-macos-x86_64.tar.gz
             binary_name: memex
           - os: windows-latest
             target: x86_64-pc-windows-msvc
