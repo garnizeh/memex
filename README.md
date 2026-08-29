@@ -6,7 +6,7 @@
 [![Rust 2024](https://img.shields.io/badge/Rust-2024%20Edition-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-8A2BE2.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/Tests-248%20Passing-success.svg)](#-testing--benchmarks)
+[![Tests](https://img.shields.io/badge/Tests-461%20Passing-success.svg)](#-testing--benchmarks)
 [![Token Reduction](https://img.shields.io/badge/Token%20Reduction-98.2%25-brightgreen.svg)](docs/benchmarks/benchmark-report.md)
 
 [![Linux](https://img.shields.io/badge/Linux-supported-blue.svg?logo=linux&logoColor=white)](#-quick-start)
@@ -169,7 +169,7 @@ You can customize inclusion and exclusion rules at the project level by committi
 Run tests and benchmarks:
 
 ```bash
-# Run unit & integration tests (248 tests)
+# Run unit & integration tests (461 tests)
 cargo test
 
 # Run efficiency benchmarks
