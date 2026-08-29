@@ -1,0 +1,4 @@
+target/
+ignored_dir/
+*.tmp
+*.log

@@ -1,9 +1,7 @@
 use std::io::{BufRead, Write};
 
 use crate::errors::{MemexError, Result};
-use crate::installer::targets::{
-    ClaudeTarget, DetectionResult, InstallOptions, TargetRegistry,
-};
+use crate::installer::targets::{ClaudeTarget, DetectionResult, InstallOptions, TargetRegistry};
 
 /// Parses target arguments into a validated list of static target IDs.
 ///
@@ -236,14 +234,7 @@ pub fn run_install(target: Option<&str>, yes: bool) -> Result<()> {
     let mut stdin = std::io::stdin().lock();
     let mut stdout = std::io::stdout();
 
-    install_with_options(
-        target,
-        yes,
-        &options,
-        &registry,
-        &mut stdin,
-        &mut stdout,
-    )?;
+    install_with_options(target, yes, &options, &registry, &mut stdin, &mut stdout)?;
     Ok(())
 }
 
@@ -334,15 +325,9 @@ mod tests {
         let mut input = Cursor::new(b"");
         let mut output = Vec::new();
 
-        let installed = install_with_options(
-            None,
-            true,
-            &options,
-            &registry,
-            &mut input,
-            &mut output,
-        )
-        .expect("install should succeed");
+        let installed =
+            install_with_options(None, true, &options, &registry, &mut input, &mut output)
+                .expect("install should succeed");
 
         assert_eq!(installed, vec!["cursor"]);
 
@@ -362,15 +347,8 @@ mod tests {
         let mut input = Cursor::new(b"");
         let mut output = Vec::new();
 
-        let installed = install_with_options(
-            None,
-            true,
-            &options,
-            &registry,
-            &mut input,
-            &mut output,
-        )
-        .unwrap();
+        let installed =
+            install_with_options(None, true, &options, &registry, &mut input, &mut output).unwrap();
 
         assert!(installed.is_empty());
         let out_str = String::from_utf8(output).unwrap();
@@ -389,15 +367,9 @@ mod tests {
         let mut input = Cursor::new(b"y\n");
         let mut output = Vec::new();
 
-        let installed = install_with_options(
-            None,
-            false,
-            &options,
-            &registry,
-            &mut input,
-            &mut output,
-        )
-        .unwrap();
+        let installed =
+            install_with_options(None, false, &options, &registry, &mut input, &mut output)
+                .unwrap();
 
         assert_eq!(installed, vec!["claude"]);
         let out_str = String::from_utf8(output).unwrap();
@@ -417,15 +389,9 @@ mod tests {
         let mut input = Cursor::new(b"n\n");
         let mut output = Vec::new();
 
-        let installed = install_with_options(
-            None,
-            false,
-            &options,
-            &registry,
-            &mut input,
-            &mut output,
-        )
-        .unwrap();
+        let installed =
+            install_with_options(None, false, &options, &registry, &mut input, &mut output)
+                .unwrap();
 
         assert!(installed.is_empty());
         let out_str = String::from_utf8(output).unwrap();
@@ -446,15 +412,9 @@ mod tests {
         let mut input = Cursor::new(b"1\n");
         let mut output = Vec::new();
 
-        let installed = install_with_options(
-            None,
-            false,
-            &options,
-            &registry,
-            &mut input,
-            &mut output,
-        )
-        .unwrap();
+        let installed =
+            install_with_options(None, false, &options, &registry, &mut input, &mut output)
+                .unwrap();
 
         assert_eq!(installed, vec!["claude"]);
         assert!(home_dir.join(".claude.json").exists());
@@ -473,15 +433,9 @@ mod tests {
         let mut input = Cursor::new(b"y\n");
         let mut output = Vec::new();
 
-        let installed = install_with_options(
-            None,
-            false,
-            &options,
-            &registry,
-            &mut input,
-            &mut output,
-        )
-        .unwrap();
+        let installed =
+            install_with_options(None, false, &options, &registry, &mut input, &mut output)
+                .unwrap();
 
         assert_eq!(installed.len(), 3);
         assert!(home_dir.join(".claude.json").exists());
@@ -562,4 +516,3 @@ mod tests {
         assert_eq!(val["mcpServers"]["memex"]["command"], "memex");
     }
 }
-

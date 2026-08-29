@@ -291,7 +291,7 @@ Build fixture corpus, unit/integration suites, Criterion benchmarks, and CI effi
 
 ### Tasks
 
-- [ ] **TASK-9.1: Test Fixture Corpus Setup (`tests/fixtures/`)**
+- [x] **TASK-9.1: Test Fixture Corpus Setup (`tests/fixtures/`)**
   - **Description:** Create static test fixtures matching Section 13.1 of `architecture.md`:
     - `simple/`: 3-5 Markdown files with basic headings.
     - `complex/`: 20+ nested files with cross-links and `.gitignore`.
