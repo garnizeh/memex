@@ -205,7 +205,7 @@ Orchestrate the ingestion, delta comparison, transaction commit, and terminal re
   - **Deliverable:** Error logging helper integrated into coordinator.
   - **Verification:** Test verifying an unreadable file is logged and remaining valid files are indexed.
 
-- [ ] **TASK-6.4: CLI `memex init` Command Implementation (`src/cli/init.rs`)**
+- [x] **TASK-6.4: CLI `memex init` Command Implementation (`src/cli/init.rs`)**
   - **Description:** Implement `memex init [path]` handling: (1) safety checks, (2) `.memex/` directory creation, (3) database schema creation, (4) full index execution, (5) formatted CLI success output.
   - **Deliverable:** CLI handler function for `Commands::Init`.
   - **Verification:** End-to-end test running `memex init` on a temporary project directory.

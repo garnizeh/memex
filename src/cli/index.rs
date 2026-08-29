@@ -434,7 +434,10 @@ impl<'a> IndexCoordinator<'a> {
                 Err(e) => {
                     error_recorder.record(
                         file_path.to_path_buf(),
-                        format!("Failed to parse markdown for '{}': {e}", full_path.display()),
+                        format!(
+                            "Failed to parse markdown for '{}': {e}",
+                            full_path.display()
+                        ),
                     );
                     continue;
                 }
@@ -1142,7 +1145,10 @@ mod tests {
 
         assert!(recorder.has_errors());
         assert_eq!(recorder.errors().len(), 2);
-        assert_eq!(recorder.errors()[0].file_path, PathBuf::from("docs/bad1.md"));
+        assert_eq!(
+            recorder.errors()[0].file_path,
+            PathBuf::from("docs/bad1.md")
+        );
         assert_eq!(recorder.errors()[0].message, "Invalid UTF-8 byte sequence");
 
         // Sync writes the log file
@@ -1158,7 +1164,10 @@ mod tests {
         // Clean recorder clears/deletes the log file
         let clean_recorder = ErrorLogRecorder::new(temp_dir.path());
         clean_recorder.sync().unwrap();
-        assert!(!log_file.exists(), "errors.log should be deleted after a clean run");
+        assert!(
+            !log_file.exists(),
+            "errors.log should be deleted after a clean run"
+        );
     }
 
     #[test]
@@ -1239,7 +1248,10 @@ mod tests {
         assert_eq!(stats2.errors.len(), 0);
 
         // .memex/errors.log should now be removed since the run was clean
-        assert!(!errors_log_path.exists(), "errors.log should be deleted after a clean run");
+        assert!(
+            !errors_log_path.exists(),
+            "errors.log should be deleted after a clean run"
+        );
 
         // Both docs should now be in DB
         let docs2 = db.reader().get_all_documents().unwrap();
