@@ -304,7 +304,7 @@ Build fixture corpus, unit/integration suites, Criterion benchmarks, and CI effi
   - **Deliverable:** Reusable test utility for benchmark generation.
   - **Verification:** Run generator in temp dir and assert file/directory counts.
 
-- [ ] **TASK-9.3: Integration Test Suite (`tests/integration/`)**
+- [x] **TASK-9.3: Integration Test Suite (`tests/integration/`)**
   - **Description:** Implement test files matching Section 13.3:
     - `test_index_pipeline.rs`: Full index, database content verification.
     - `test_incremental_index.rs`: Adding, modifying, deleting files.
