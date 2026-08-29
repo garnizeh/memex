@@ -4,38 +4,66 @@
 
 set -euo pipefail
 
-GIT_DIR="$(git rev-parse --git-dir 2>/dev/null || true)"
-
-if [ -z "$GIT_DIR" ]; then
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! git rev-parse --git-dir >/dev/null 2>&1; then
     echo "Error: Not inside a Git repository." >&2
     exit 1
 fi
 
-HOOKS_DIR="$GIT_DIR/hooks"
+HOOKS_DIR="$(git rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
+if [ -z "$HOOKS_DIR" ]; then
+    GIT_DIR="$(git rev-parse --git-dir)"
+    HOOKS_DIR="$GIT_DIR/hooks"
+fi
+
 mkdir -p "$HOOKS_DIR"
 
-HOOK_CONTENT='#!/usr/bin/env bash
-# Trigger Memex background incremental re-indexing
-if command -v memex >/dev/null 2>&1; then
-    (memex index --quiet >/dev/null 2>&1 &)
-fi
-'
+HOOK_TRIGGER_COMMENT="# Memex background index trigger"
 
 HOOKS=("post-commit" "post-merge" "post-checkout")
 
 for hook in "${HOOKS[@]}"; do
     HOOK_FILE="$HOOKS_DIR/$hook"
-    
+    LEGACY_HOOK_FILE="$HOOKS_DIR/$hook.pre-memex"
+
     if [ -f "$HOOK_FILE" ]; then
         if grep -q "memex index" "$HOOK_FILE"; then
             echo "Memex hook already present in $hook."
             continue
         fi
-        echo "Appending Memex trigger to existing $hook hook..."
-        printf "\n# Memex background index trigger\nif command -v memex >/dev/null 2>&1; then\n    (memex index --quiet >/dev/null 2>&1 &)\nfi\n" >> "$HOOK_FILE"
+
+        echo "Preserving existing $hook hook as $hook.pre-memex and wrapping..."
+        mv "$HOOK_FILE" "$LEGACY_HOOK_FILE"
+        chmod +x "$LEGACY_HOOK_FILE"
+
+        cat << 'EOF' > "$HOOK_FILE"
+#!/usr/bin/env bash
+# Managed by Memex installer
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LEGACY="$DIR/HOOK_NAME_PLACEHOLDER.pre-memex"
+
+# Run previous hook if it exists and preserve its exit status
+EXIT_CODE=0
+if [ -x "$LEGACY" ]; then
+    "$LEGACY" "$@" || EXIT_CODE=$?
+fi
+
+# Memex background index trigger
+if command -v memex >/dev/null 2>&1; then
+    (memex index --quiet >/dev/null 2>&1 &)
+fi
+
+exit $EXIT_CODE
+EOF
+        sed -i "s/HOOK_NAME_PLACEHOLDER/$hook/g" "$HOOK_FILE"
     else
         echo "Creating $hook hook..."
-        printf "%s" "$HOOK_CONTENT" > "$HOOK_FILE"
+        cat << 'EOF' > "$HOOK_FILE"
+#!/usr/bin/env bash
+# Memex background index trigger
+if command -v memex >/dev/null 2>&1; then
+    (memex index --quiet >/dev/null 2>&1 &)
+fi
+EOF
     fi
     chmod +x "$HOOK_FILE"
 done

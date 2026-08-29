@@ -2,7 +2,7 @@
 
 > **Local, Offline Documentation Context Server (MCP) for LLMs & AI Coding Agents**
 
-[![Status: Production Ready (MVP)](https://img.shields.io/badge/Status-MVP%20Ready-brightgreen.svg)](#-mvp-status--readiness)
+[![Status: Production Ready (MVP)](https://img.shields.io/badge/Status-MVP%20Ready-brightgreen.svg)](#memex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-244%20Passing-success.svg)](#-testing--benchmarks)
 
@@ -25,15 +25,15 @@
 
 ## 🚀 Quick Start
 
-### 1. Build from Source
+### 1. Build and Install Binary
 
-Build the optimized, self-contained standalone binary:
+Build the optimized standalone binary and install it to your `PATH`:
 
 ```bash
-cargo build --release
-# Optionally install to PATH:
 cargo install --path .
 ```
+
+Alternatively, compile locally with `cargo build --release` (binary output at `target/release/memex`).
 
 ### 2. Auto-Register with AI Agents
 
