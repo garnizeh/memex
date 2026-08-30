@@ -19,7 +19,15 @@
   - `docs/roadmap/`: Roadmap, milestones, tasks, and future plans.
 
 ## 3. Development Workflow & Quality Standards
-- **Formatting**: Always format Rust code using `cargo fmt` before submitting.
+> **MANDATORY PRE-COMMIT & PRE-PUBLISH DIRECTIVE**:
+> Before committing (`git commit`), pushing (`git push`), or publishing a PR, agents **MUST ALWAYS** run:
+> 1. `cargo fmt --all` (ensure zero formatting diffs)
+> 2. `cargo clippy --all-targets -- -D warnings` (must pass with 0 warnings)
+> 3. `cargo test --lib --bins` (all tests must pass)
+>
+> Committing or pushing without executing and verifying these three steps is **strictly prohibited**.
+
+- **Formatting**: Always format Rust code using `cargo fmt --all` before committing or pushing.
 - **Linting**: Ensure code passes `cargo clippy --all-targets -- -D warnings`.
 - **Testing**:
   - Run unit and integration tests with `cargo test`.

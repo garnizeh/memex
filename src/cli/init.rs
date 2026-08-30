@@ -98,9 +98,13 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
     let mut db = Database::open(&db_path)?;
     initialize_schema(db.conn())?;
 
-    // 6. Full File Discovery & Ingestion
+    // 6. Full File Discovery & Ingestion with multi-stage progress reporting
     let config = MemexConfig::load_or_default(&resolved_path);
+    let mut reporter = crate::cli::progress::IndexProgressReporter::new(false);
+
+    reporter.start_scan();
     let scanned_files = FileDiscovery::scan(&resolved_path, &config)?;
+    let added_count = scanned_files.len();
 
     let delta = IndexDelta {
         added: scanned_files,
@@ -108,6 +112,7 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
         removed: Vec::new(),
         unchanged: Vec::new(),
     };
+    reporter.finish_scan(added_count, added_count);
 
     if verbose {
         eprintln!(
@@ -117,7 +122,11 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
         );
     }
 
-    let stats = IndexCoordinator::new(&resolved_path, &mut db).process_delta(&delta, embedder)?;
+    let stats = IndexCoordinator::new(&resolved_path, &mut db).process_delta_with_reporter(
+        &delta,
+        embedder,
+        &mut reporter,
+    )?;
 
     Ok(stats)
 }
