@@ -71,6 +71,23 @@ pub struct AntigravityInjectStep {
     pub ephemeral_message: String,
 }
 
+/// Sanitizes raw user prompt text by stripping XML wrapper tags like `<USER_REQUEST>...</USER_REQUEST>`
+/// and metadata blocks injected by IDE harnesses.
+pub fn sanitize_prompt_text(text: &str) -> String {
+    let trimmed = text.trim();
+    if let Some(start_idx) = trimmed.find("<USER_REQUEST>") {
+        let content_start = start_idx + "<USER_REQUEST>".len();
+        if let Some(end_idx) = trimmed[content_start..].find("</USER_REQUEST>") {
+            let extracted = &trimmed[content_start..content_start + end_idx];
+            let clean = extracted.trim();
+            if !clean.is_empty() {
+                return clean.to_string();
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
 /// Attempts to extract the most recent user prompt text from an Antigravity transcript JSONL file.
 pub fn extract_last_user_prompt_from_transcript(transcript_path: &Path) -> Option<String> {
     let file = File::open(transcript_path).ok()?;
@@ -94,9 +111,9 @@ pub fn extract_last_user_prompt_from_transcript(transcript_path: &Path) -> Optio
                     .unwrap_or(false);
 
             if is_user_input && let Some(content) = val.get("content").and_then(|c| c.as_str()) {
-                let trimmed = content.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
+                let sanitized = sanitize_prompt_text(content);
+                if !sanitized.is_empty() {
+                    return Some(sanitized);
                 }
             }
         }
@@ -134,7 +151,7 @@ pub fn run_prompt_hook() -> Result<()> {
         .map(|p| p.is_antigravity())
         .unwrap_or(false);
 
-    let prompt_text = if let Some(ref parsed) = parsed_input {
+    let raw_prompt = if let Some(ref parsed) = parsed_input {
         parsed
             .prompt
             .as_ref()
@@ -150,6 +167,8 @@ pub fn run_prompt_hook() -> Result<()> {
     } else {
         stdin_buffer.trim().to_string()
     };
+
+    let prompt_text = sanitize_prompt_text(&raw_prompt);
 
     if prompt_text.is_empty() {
         return emit_empty_response(is_antigravity);
@@ -318,6 +337,30 @@ mod tests {
 
         let extracted = extract_last_user_prompt_from_transcript(temp_file.path());
         assert_eq!(extracted.as_deref(), Some("how does memex indexing work?"));
+    }
+
+    #[test]
+    fn test_sanitize_prompt_text() {
+        let raw = "<USER_REQUEST>\nwhat does milestone 4 do?\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\ninfo\n</ADDITIONAL_METADATA>";
+        assert_eq!(sanitize_prompt_text(raw), "what does milestone 4 do?");
+
+        let clean = "how to configure memex?";
+        assert_eq!(sanitize_prompt_text(clean), "how to configure memex?");
+    }
+
+    #[test]
+    fn test_extract_last_user_prompt_from_transcript_with_metadata() {
+        use std::io::Write as IoWrite;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(
+            temp_file,
+            r#"{{"type":"USER_INPUT","source":"USER_EXPLICIT","content":"<USER_REQUEST>\nwhat does milestone 4 do?\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nsome metadata\n</ADDITIONAL_METADATA>"}}"#
+        )
+        .unwrap();
+
+        let extracted = extract_last_user_prompt_from_transcript(temp_file.path());
+        assert_eq!(extracted.as_deref(), Some("what does milestone 4 do?"));
     }
 
     #[test]

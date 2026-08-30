@@ -24,11 +24,13 @@ impl AntigravityTarget {
         let ide_config = gemini_dir.join("antigravity-ide").join("mcp_config.json");
         let global_config = gemini_dir.join("config").join("mcp_config.json");
 
-        if ide_config.exists() {
+        if global_config.exists() {
+            // Canonical global installation
+            Ok(global_config)
+        } else if ide_config.exists() {
             // Legacy supported installation
             Ok(ide_config)
-        } else if global_config.exists() {
-            // Canonical global installation
+        } else if gemini_dir.join("config").exists() {
             Ok(global_config)
         } else if gemini_dir.join("antigravity-ide").exists() {
             Ok(ide_config)
@@ -51,9 +53,11 @@ impl AntigravityTarget {
         let ide_hooks = gemini_dir.join("antigravity-ide").join("hooks.json");
         let global_hooks = gemini_dir.join("config").join("hooks.json");
 
-        if ide_hooks.exists() {
+        if global_hooks.exists() {
+            Ok(global_hooks)
+        } else if ide_hooks.exists() {
             Ok(ide_hooks)
-        } else if global_hooks.exists() {
+        } else if gemini_dir.join("config").exists() {
             Ok(global_hooks)
         } else if gemini_dir.join("antigravity-ide").exists() {
             Ok(ide_hooks)
