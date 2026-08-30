@@ -220,7 +220,32 @@ pub fn install_with_options<R: BufRead, W: Write>(
         }
     }
 
+    // Inject/update target-specific agent directive rules in workspace (e.g. AGENTS.md, CLAUDE.md, .cursorrules)
+    if let Some(ref ws) = options.workspace_dir {
+        if let Ok(rule_paths) = crate::installer::update_target_agent_rules(ws, &installed) {
+            for rp in rule_paths {
+                writeln!(
+                    writer,
+                    "  Injected Memex agent directives into {}",
+                    rp.display()
+                )?;
+            }
+        }
+    } else if let Ok(cwd) = std::env::current_dir()
+        && cwd.join(".memex").exists()
+        && let Ok(rule_paths) = crate::installer::update_target_agent_rules(&cwd, &installed)
+    {
+        for rp in rule_paths {
+            writeln!(
+                writer,
+                "  Injected Memex agent directives into {}",
+                rp.display()
+            )?;
+        }
+    }
+
     writeln!(writer)?;
+
     writeln!(
         writer,
         "✓ Successfully configured Memex MCP server for {} agent(s).",
@@ -671,5 +696,42 @@ mod tests {
             .unwrap();
         let args_str: Vec<&str> = args.iter().map(|a| a.as_str().unwrap()).collect();
         assert_eq!(args_str, vec!["serve", "--mcp", "--debug"]);
+    }
+
+    #[test]
+    fn test_install_injects_agent_rules_in_workspace() {
+        let temp_dir = TempDir::new().unwrap();
+        let home_dir = temp_dir.path().join("home");
+        let workspace_dir = temp_dir.path().join("workspace");
+        std::fs::create_dir_all(&home_dir).unwrap();
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let options = InstallOptions::new()
+            .with_home_dir(&home_dir)
+            .with_workspace_dir(&workspace_dir);
+        let registry = TargetRegistry::with_defaults();
+
+        let mut input = Cursor::new(b"");
+        let mut output = Vec::new();
+
+        let installed = install_with_options(
+            Some("claude,cursor"),
+            true,
+            &options,
+            &registry,
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(installed, vec!["claude", "cursor"]);
+
+        assert!(workspace_dir.join("CLAUDE.md").exists());
+        assert!(workspace_dir.join("AGENTS.md").exists());
+        assert!(workspace_dir.join(".cursorrules").exists());
+
+        let claude_md = std::fs::read_to_string(workspace_dir.join("CLAUDE.md")).unwrap();
+        assert!(claude_md.contains(crate::installer::MEMEX_START_MARKER));
+        assert!(claude_md.contains("search_documentation"));
     }
 }

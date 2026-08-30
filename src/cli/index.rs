@@ -1753,10 +1753,15 @@ mod tests {
 
         crate::cli::init::run_init(&project_dir, false, false).unwrap();
 
-        // Run index twice
+        // Run index after run_init (which generated AGENTS.md & CLAUDE.md)
         let stats1 = run_index(&project_dir, false, false).unwrap();
-        assert!(!stats1.has_changes());
+        assert_eq!(stats1.files_added, 2);
         assert_eq!(stats1.files_unchanged, 1);
+
+        // Run index again — now it must be up to date
+        let stats_synced = run_index(&project_dir, false, false).unwrap();
+        assert!(!stats_synced.has_changes());
+        assert_eq!(stats_synced.files_unchanged, 3);
 
         // Add a new file and modify intro.md
         create_test_file(
@@ -1778,6 +1783,6 @@ mod tests {
         // Verify again with run_index that it's now up to date
         let stats3 = run_index(&project_dir, true, false).unwrap();
         assert!(!stats3.has_changes());
-        assert_eq!(stats3.files_unchanged, 2);
+        assert_eq!(stats3.files_unchanged, 4);
     }
 }
