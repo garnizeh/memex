@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/garnizeh/memex/compare/memex-v0.7.0...memex-v0.8.0) (2026-08-30)
+
+
+### Features
+
+* deduplicate prompt-hook invocations across multi-step agent turns ([#79](https://github.com/garnizeh/memex/issues/79)) ([662fc18](https://github.com/garnizeh/memex/commit/662fc1829e16407717b6afde4d8c9a34c87f9e4b))
+
 ## [0.7.0](https://github.com/garnizeh/memex/compare/memex-v0.6.0...memex-v0.7.0) (2026-08-30)
 
 
