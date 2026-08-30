@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.0](https://github.com/garnizeh/memex/compare/memex-v0.4.0...memex-v0.5.0) (2026-08-30)
+
+
+### Features
+
+* **cli:** multi-stage progress reporting, resilient MCP server, and agent installer enhancements ([558beff](https://github.com/garnizeh/memex/commit/558beff0c5b5229f62dbbbbe48e03a091faf8a0e))
+* **installer:** automatically inject memex prompt-hook into Claude Code settings on install ([c3e2e08](https://github.com/garnizeh/memex/commit/c3e2e08e2b3d09d165c04047711095db1f11839d))
+* **installer:** inject Memex instructions hook into Claude Code settings.json ([ee0093d](https://github.com/garnizeh/memex/commit/ee0093d45b7b660f2f42e48f409d2ebab8d4c831))
+* **mcp:** add optional project_path to tool schemas ([ceca308](https://github.com/garnizeh/memex/commit/ceca3086afcb4051563ce00f7416528d1a1c0807))
+* **mcp:** support dynamic project resolution and graceful error handling in serve ([bc84f6d](https://github.com/garnizeh/memex/commit/bc84f6d28e2549e5aa9f53cf3b4596471704c756))
+* **prompt-hook:** add diagnostic logging to ~/.memex_prompt_hook.log ([4e64777](https://github.com/garnizeh/memex/commit/4e64777dd6feac73c0c9c17e1a15310e51072dce))
+* **prompt-hook:** output XML context in &lt;memex_context&gt; tag for Claude Code harness ([ba7e5fc](https://github.com/garnizeh/memex/commit/ba7e5fcdb76159719251dc94c78671ef2d83f1ed))
+
+
+### Bug Fixes
+
+* **cli:** preserve plain progress logs in non-interactive mode and fix init reporter flag ([207f2bf](https://github.com/garnizeh/memex/commit/207f2bf0c1cf419a2ffe72323eb27b64c2b19a52))
+* **installer:** correct Claude Code hooks nesting schema with matcher and inner hooks array ([bb738a6](https://github.com/garnizeh/memex/commit/bb738a6e30b698fb35ecfcf16036e400331b7957))
+* **installer:** ensure memex prompt-hook entry is appended to Claude hooks array ([ca816d4](https://github.com/garnizeh/memex/commit/ca816d4fb7908fbc7bc53887300c72ea06612e35))
+* **installer:** inject memex prompt-hook into same hooks array as codegraph in Claude settings ([e2a35c3](https://github.com/garnizeh/memex/commit/e2a35c3e035b772db41216113459f2c9afea7f36))
+* **installer:** remove matcher property from Claude Code hooks entry ([d6a46c5](https://github.com/garnizeh/memex/commit/d6a46c5d6d649af5aad8501d51054b9b2b4eeb3d))
+* **installer:** require specific Antigravity marker or config directory for detection ([8dbb1f5](https://github.com/garnizeh/memex/commit/8dbb1f56c58b28e4691fe26c1b2491b740b8bd73))
+* **installer:** resolve Antigravity config path at ~/.gemini/config/mcp_config.json ([aa48d1d](https://github.com/garnizeh/memex/commit/aa48d1dfe764eb153e0229b0c62e46260d931d7a))
+* **serve:** invalidate MCP cached db when root changes and support index.db fallback ([68647fd](https://github.com/garnizeh/memex/commit/68647fdd6770c06fa101f45251441733dfd2e63a))
+* trigger reload when target_root resolution fails and clean legacy prompt hooks across all entries ([0626913](https://github.com/garnizeh/memex/commit/0626913fda36c68a9bfb4ea42087cb1e27595727))
+
 ## [0.4.0](https://github.com/garnizeh/memex/compare/memex-v0.3.0...memex-v0.4.0) (2026-08-29)
 
 
