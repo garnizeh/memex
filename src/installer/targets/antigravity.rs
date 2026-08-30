@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::errors::Result;
-use crate::installer::config_writer::{atomic_write_json, read_json_value};
+use crate::errors::{MemexError, Result};
+use crate::installer::config_writer::{atomic_write_json, read_jsonc_value};
 use crate::installer::targets::{
     AgentTarget, DetectionResult, InstallOptions, inject_mcp_server_config, is_memex_in_mcp_config,
 };
@@ -69,7 +69,12 @@ impl AntigravityTarget {
 
 /// Helper function to safely inject the Memex PreInvocation hook into Antigravity's `hooks.json`.
 pub fn inject_antigravity_hooks(hooks_path: &Path) -> Result<()> {
-    let mut root = read_json_value(hooks_path)?.unwrap_or_else(|| serde_json::json!({}));
+    let mut root = match read_jsonc_value(hooks_path) {
+        Ok(Some(val)) => val,
+        Ok(None) => serde_json::json!({}),
+        Err(MemexError::Serialization(_)) => serde_json::json!({}),
+        Err(err) => return Err(err),
+    };
 
     if !root.is_object() {
         root = serde_json::json!({});
@@ -355,5 +360,46 @@ mod tests {
         let pre_inv = parsed["memex"]["PreInvocation"].as_array().unwrap();
         assert_eq!(pre_inv.len(), 1);
         assert_eq!(pre_inv[0]["command"].as_str().unwrap(), "memex prompt-hook");
+    }
+
+    #[test]
+    fn test_antigravity_hooks_with_jsonc_and_corrupted_json() {
+        let temp_dir = TempDir::new().unwrap();
+        let hooks_file = temp_dir.path().join("hooks.json");
+
+        // 1. JSON with comments (JSONC)
+        let jsonc_content = r#"{
+            // existing hook configuration
+            "pre_existing": {
+                "PreInvocation": [
+                    { "type": "command", "command": "echo test" }
+                ]
+            }
+        }"#;
+        std::fs::write(&hooks_file, jsonc_content).unwrap();
+
+        inject_antigravity_hooks(&hooks_file).unwrap();
+        let parsed = read_jsonc_value(&hooks_file).unwrap().unwrap();
+        assert!(parsed["pre_existing"]["PreInvocation"].is_array());
+        assert_eq!(
+            parsed["memex"]["PreInvocation"][0]["command"]
+                .as_str()
+                .unwrap(),
+            "memex prompt-hook"
+        );
+
+        // 2. Corrupted JSON file falls back to empty object and creates backup
+        let corrupted_file = temp_dir.path().join("corrupted_hooks.json");
+        std::fs::write(&corrupted_file, "{ invalid json content").unwrap();
+
+        inject_antigravity_hooks(&corrupted_file).unwrap();
+        assert!(temp_dir.path().join("corrupted_hooks.json.backup").exists());
+        let parsed_corrupted = read_json_value(&corrupted_file).unwrap().unwrap();
+        assert_eq!(
+            parsed_corrupted["memex"]["PreInvocation"][0]["command"]
+                .as_str()
+                .unwrap(),
+            "memex prompt-hook"
+        );
     }
 }

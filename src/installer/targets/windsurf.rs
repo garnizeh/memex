@@ -18,10 +18,19 @@ impl WindsurfTarget {
             let local_windsurf_dir = workspace.join(".windsurf");
             let local_windsurf_file = local_windsurf_dir.join("mcp_config.json");
 
-            if local_codeium_file.exists() || local_codeium_dir.exists() {
+            // Prefer existing configuration files first
+            if local_codeium_file.exists() {
                 return Ok(local_codeium_file);
             }
-            if local_windsurf_file.exists() || local_windsurf_dir.exists() {
+            if local_windsurf_file.exists() {
+                return Ok(local_windsurf_file);
+            }
+
+            // Fall back to directory existence if neither file exists
+            if local_codeium_dir.exists() {
+                return Ok(local_codeium_file);
+            }
+            if local_windsurf_dir.exists() {
                 return Ok(local_windsurf_file);
             }
         }
@@ -190,5 +199,25 @@ mod tests {
             parsed["mcpServers"]["memex"]["command"].as_str().unwrap(),
             "memex"
         );
+    }
+
+    #[test]
+    fn test_windsurf_workspace_prefers_existing_file_over_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        // Create empty .codeium/windsurf directory
+        std::fs::create_dir_all(workspace.join(".codeium").join("windsurf")).unwrap();
+        // Create actual .windsurf/mcp_config.json file
+        let windsurf_dir = workspace.join(".windsurf");
+        std::fs::create_dir_all(&windsurf_dir).unwrap();
+        let windsurf_file = windsurf_dir.join("mcp_config.json");
+        std::fs::write(&windsurf_file, "{}").unwrap();
+
+        let target = WindsurfTarget;
+        let opts = InstallOptions::new().with_workspace_dir(&workspace);
+
+        let resolved = target.resolve_mcp_config_path(&opts).unwrap();
+        // Must prefer the existing .windsurf/mcp_config.json file over empty .codeium/windsurf dir
+        assert_eq!(resolved, windsurf_file);
     }
 }

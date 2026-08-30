@@ -86,10 +86,9 @@ impl AgentTarget for ZedTarget {
         }
 
         let target_config = self.resolve_settings_path(options)?;
-        let home = options.resolve_home_dir()?;
-        let config_zed_dir = home.join(".config").join("zed");
+        let config_zed_dir = target_config.parent();
 
-        if target_config.exists() || config_zed_dir.exists() {
+        if target_config.exists() || config_zed_dir.map(|p| p.exists()).unwrap_or(false) {
             let is_configured = is_memex_in_zed_config(&target_config);
             Ok(DetectionResult::Detected {
                 config_path: target_config,
@@ -279,5 +278,35 @@ mod tests {
                 .unwrap(),
             "serve"
         );
+    }
+
+    #[test]
+    fn test_zed_detection_with_xdg_config_home() {
+        let temp_dir = TempDir::new().unwrap();
+        let custom_xdg = temp_dir.path().join("custom_xdg");
+        let zed_dir = custom_xdg.join("zed");
+        std::fs::create_dir_all(&zed_dir).unwrap();
+
+        let old_val = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &custom_xdg);
+        }
+
+        let target = ZedTarget;
+        let opts = InstallOptions::new(); // no explicit home_dir override
+        let detected = target.detect(&opts).unwrap();
+        assert!(detected.is_detected());
+        assert_eq!(
+            detected.config_path(),
+            Some(zed_dir.join("settings.json").as_path())
+        );
+
+        unsafe {
+            if let Some(val) = old_val {
+                std::env::set_var("XDG_CONFIG_HOME", val);
+            } else {
+                std::env::remove_var("XDG_CONFIG_HOME");
+            }
+        }
     }
 }
