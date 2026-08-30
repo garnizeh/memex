@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/garnizeh/memex/compare/memex-v0.5.0...memex-v0.6.0) (2026-08-30)
+
+
+### Features
+
+* **installer:** add multi-agent auto-registration and backup support ([#72](https://github.com/garnizeh/memex/issues/72)) ([fc5070a](https://github.com/garnizeh/memex/commit/fc5070af1189d7cd46628b16a6127047dd5774cc))
+
 ## [0.5.0](https://github.com/garnizeh/memex/compare/memex-v0.4.0...memex-v0.5.0) (2026-08-30)
 
 
