@@ -670,8 +670,9 @@ stateDiagram-v2
     *   **Claude Code:** Injects `mcp__memex__*` permissions into `~/.claude/settings.json` and configures `UserPromptSubmit` prompt-hook command (`memex prompt-hook`).
     *   **Antigravity IDE:** Injects `PreInvocation` hook into `hooks.json` to trigger contextual semantic documentation injection on each planner turn.
 
-5.  **Agent Directive Templates (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`):**
+5.  **Agent Directive Templates (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.windsurfrules`):**
     Static directive templates instruct agents to prefer Memex MCP tools (`search_documentation`, `traverse_graph`) before generic fallback tools (`view_file`, `grep`).
+
     ```markdown
     <!-- MEMEX_START -->
     ## Documentation Search (Memex)

@@ -232,8 +232,8 @@ pub fn install_with_options<R: BufRead, W: Write>(
             }
         }
     } else if let Ok(cwd) = std::env::current_dir()
-        && cwd.join(".memex").exists()
-        && let Ok(rule_paths) = crate::installer::update_target_agent_rules(&cwd, &installed)
+        && let Ok(root) = crate::cli::index::find_project_root(&cwd)
+        && let Ok(rule_paths) = crate::installer::update_target_agent_rules(&root, &installed)
     {
         for rp in rule_paths {
             writeln!(

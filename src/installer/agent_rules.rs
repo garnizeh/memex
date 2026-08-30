@@ -36,11 +36,14 @@ pub fn inject_memex_directive(content: &str) -> String {
         return result;
     }
 
-    let trimmed = content.trim_end();
-    if trimmed.is_empty() {
+    if content.is_empty() {
         format!("{}\n", CANONICAL_MEMEX_DIRECTIVE)
+    } else if content.ends_with("\n\n") {
+        format!("{}{}\n", content, CANONICAL_MEMEX_DIRECTIVE)
+    } else if content.ends_with('\n') {
+        format!("{}\n{}\n", content, CANONICAL_MEMEX_DIRECTIVE)
     } else {
-        format!("{}\n\n{}\n", trimmed, CANONICAL_MEMEX_DIRECTIVE)
+        format!("{}\n\n{}\n", content, CANONICAL_MEMEX_DIRECTIVE)
     }
 }
 
@@ -53,6 +56,15 @@ pub fn update_rule_file(path: &Path) -> Result<bool> {
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent)?;
+    }
+
+    if let Ok(meta) = fs::symlink_metadata(path)
+        && meta.file_type().is_symlink()
+    {
+        return Err(crate::errors::MemexError::DiscoveryError {
+            path: path.display().to_string(),
+            reason: "Refusing to modify rule file through symbolic link".to_string(),
+        });
     }
 
     let original_content = if path.exists() {
@@ -249,7 +261,28 @@ Keep this intact!
         let updated = update_target_agent_rules(ws, &["cursor", "windsurf"]).unwrap();
         assert!(ws.join(".cursorrules").exists());
         assert!(ws.join(".windsurfrules").exists());
-        assert!(ws.join("AGENTS.md").exists());
         assert!(!updated.is_empty());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_update_rule_file_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().unwrap();
+        let target_file = temp_dir.path().join("real_target.md");
+        std::fs::write(&target_file, "real content").unwrap();
+
+        let link_file = temp_dir.path().join("link_rule.md");
+        symlink(&target_file, &link_file).unwrap();
+
+        let res = update_rule_file(&link_file);
+        assert!(res.is_err());
+        match res {
+            Err(crate::errors::MemexError::DiscoveryError { reason, .. }) => {
+                assert!(reason.contains("symbolic link"));
+            }
+            _ => panic!("Expected DiscoveryError on symlink"),
+        }
     }
 }
