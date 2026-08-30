@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/garnizeh/memex/compare/memex-v0.6.0...memex-v0.7.0) (2026-08-30)
+
+
+### Features
+
+* **mcp:** concurrent-safe MCP debug logging and prompt hook trace support ([#77](https://github.com/garnizeh/memex/issues/77)) ([d25bbca](https://github.com/garnizeh/memex/commit/d25bbca5120e6073ef537b3d8e3c2e7d206a056a))
+
 ## [0.6.0](https://github.com/garnizeh/memex/compare/memex-v0.5.0...memex-v0.6.0) (2026-08-30)
 
 
