@@ -88,7 +88,11 @@ pub enum Commands {
 
     /// Claude Code UserPromptSubmit prehook command for automated context injection
     #[command(name = "prompt-hook")]
-    PromptHook,
+    PromptHook {
+        /// Enable verbose MCP request debug logging into .memex/debug_mcp.log
+        #[arg(long)]
+        debug: bool,
+    },
 }
 
 #[tokio::main]
@@ -121,8 +125,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Serve { path, mcp, debug } => {
             cli::serve::run_serve(path.as_deref(), mcp, debug).await?;
         }
-        Commands::PromptHook => {
-            cli::prompt_hook::run_prompt_hook()?;
+        Commands::PromptHook { debug } => {
+            cli::prompt_hook::run_prompt_hook(debug)?;
         }
     }
 

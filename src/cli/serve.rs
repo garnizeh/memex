@@ -138,6 +138,14 @@ impl McpServer {
 
     /// Handles an incoming JSON-RPC request synchronously.
     pub fn handle_request_sync(&self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+        let resp = self.dispatch_request_sync(&req);
+        if let (Some(logger), Some(r)) = (&self.debug_logger, &resp) {
+            logger.log_response(r);
+        }
+        resp
+    }
+
+    fn dispatch_request_sync(&self, req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         // Debug logging dispatch
         if let Some(ref logger) = self.debug_logger {
             if req.method == "initialize" {
@@ -157,7 +165,7 @@ impl McpServer {
         }
 
         // 1. Check protocol handshake / tools listing first (always works even if uninitialized)
-        if let Some(resp) = handle_handshake_or_tools(&req) {
+        if let Some(resp) = handle_handshake_or_tools(req) {
             return resp;
         }
 
@@ -258,7 +266,7 @@ impl McpServer {
             None
         } else {
             Some(JsonRpcResponse::error(
-                req.id,
+                req.id.clone(),
                 JsonRpcError::method_not_found(Some(serde_json::json!({
                     "method": req.method
                 }))),

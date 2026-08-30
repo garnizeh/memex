@@ -140,6 +140,65 @@ impl McpDebugLogger {
         self.append_line(&log_line);
     }
 
+    /// Logs a JSON-RPC response or error.
+    pub fn log_response(&self, response: &crate::mcp::types::JsonRpcResponse) {
+        let client = self
+            .client_name
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| "Unknown".to_string());
+
+        let timestamp = current_iso_timestamp();
+        let pid = std::process::id();
+        let id_str = match &response.id {
+            Some(serde_json::Value::Number(n)) => n.to_string(),
+            Some(serde_json::Value::String(s)) => format!("\"{s}\""),
+            Some(v) => v.to_string(),
+            None => "null".to_string(),
+        };
+
+        let log_line = if let Some(ref err) = response.error {
+            format!(
+                "[{timestamp}] [PID:{pid}] [CLIENT:{client}] [RESPONSE:ERROR] ID:{id_str} CODE:{code} MSG:\"{msg}\"\n",
+                code = err.code,
+                msg = err.message
+            )
+        } else if let Some(ref res) = response.result {
+            let res_preview = match res {
+                serde_json::Value::Object(map) if map.contains_key("content") => {
+                    if let Some(serde_json::Value::Array(items)) = map.get("content") {
+                        format!("{} content item(s)", items.len())
+                    } else {
+                        "content ok".to_string()
+                    }
+                }
+                serde_json::Value::Object(map) if map.contains_key("tools") => {
+                    if let Some(serde_json::Value::Array(tools)) = map.get("tools") {
+                        format!("{} tool(s) listed", tools.len())
+                    } else {
+                        "tools ok".to_string()
+                    }
+                }
+                other => {
+                    let s = serde_json::to_string(other).unwrap_or_default();
+                    if s.chars().count() > 80 {
+                        let trunc: String = s.chars().take(80).collect();
+                        format!("{trunc}...")
+                    } else {
+                        s
+                    }
+                }
+            };
+            format!(
+                "[{timestamp}] [PID:{pid}] [CLIENT:{client}] [RESPONSE:OK] ID:{id_str} RESULT: {res_preview}\n"
+            )
+        } else {
+            format!("[{timestamp}] [PID:{pid}] [CLIENT:{client}] [RESPONSE:OK] ID:{id_str}\n")
+        };
+
+        self.append_line(&log_line);
+    }
+
     /// Logs a prompt-hook execution event atomically to the given log file.
     pub fn log_hook_event(
         log_path: &Path,
@@ -150,8 +209,9 @@ impl McpDebugLogger {
         let timestamp = current_iso_timestamp();
         let pid = std::process::id();
 
-        let prompt_preview = if prompt.len() > 120 {
-            format!("{}...", &prompt[..120])
+        let prompt_preview = if prompt.chars().count() > 120 {
+            let truncated: String = prompt.chars().take(120).collect();
+            format!("{truncated}...")
         } else {
             prompt.to_string()
         };
@@ -327,5 +387,54 @@ mod tests {
         let content = std::fs::read_to_string(&log_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines.len(), 500);
+    }
+
+    #[test]
+    fn test_mcp_debug_logger_response_logging() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let log_path = temp_file.path().to_path_buf();
+        let logger = McpDebugLogger::with_log_path(log_path.clone());
+
+        // 1. Success response
+        let ok_resp = crate::mcp::types::JsonRpcResponse::success(
+            Some(serde_json::json!(1)),
+            serde_json::json!({
+                "content": [
+                    { "type": "text", "text": "result content" }
+                ]
+            }),
+        );
+        logger.log_response(&ok_resp);
+
+        // 2. Error response
+        let err_resp = crate::mcp::types::JsonRpcResponse::error(
+            Some(serde_json::json!(2)),
+            crate::mcp::types::JsonRpcError::method_not_found(None),
+        );
+        logger.log_response(&err_resp);
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(content.contains("[RESPONSE:OK] ID:1 RESULT: 1 content item(s)"));
+        assert!(content.contains("[RESPONSE:ERROR] ID:2 CODE:-32601 MSG:\"Method not found\""));
+    }
+
+    #[test]
+    fn test_mcp_debug_logger_unicode_truncation() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let log_path = temp_file.path().to_path_buf();
+
+        // 119 'a' characters + multi-byte character (2 bytes in UTF-8) + 'x'
+        // Slicing at byte index 120 would panic; character-based truncation will not.
+        let multibyte_prompt = format!("{}éx", "a".repeat(119));
+        McpDebugLogger::log_hook_event(
+            &log_path,
+            "TestClient",
+            &multibyte_prompt,
+            Some("1 result"),
+        );
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(content.contains("[HOOK:prompt-hook]"));
+        assert!(content.contains("..."));
     }
 }
