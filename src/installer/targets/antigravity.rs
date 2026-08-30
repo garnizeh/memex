@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::errors::Result;
 use crate::installer::targets::{
     AgentTarget, DetectionResult, InstallOptions, inject_mcp_server_config, is_memex_in_mcp_config,
@@ -6,6 +8,28 @@ use crate::installer::targets::{
 /// Agent target for Antigravity IDE.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AntigravityTarget;
+
+impl AntigravityTarget {
+    /// Resolves the MCP configuration path for Antigravity IDE.
+    pub fn resolve_config_path(&self, options: &InstallOptions) -> Result<PathBuf> {
+        let home = options.resolve_home_dir()?;
+        let gemini_dir = home.join(".gemini");
+        let ide_config = gemini_dir.join("antigravity-ide").join("mcp_config.json");
+        let global_config = gemini_dir.join("config").join("mcp_config.json");
+
+        if ide_config.exists() {
+            Ok(ide_config)
+        } else if global_config.exists() {
+            Ok(global_config)
+        } else if gemini_dir.join("antigravity-ide").exists() {
+            Ok(ide_config)
+        } else if gemini_dir.join("config").exists() {
+            Ok(global_config)
+        } else {
+            Ok(ide_config)
+        }
+    }
+}
 
 impl AgentTarget for AntigravityTarget {
     fn id(&self) -> &'static str {
@@ -19,17 +43,7 @@ impl AgentTarget for AntigravityTarget {
     fn detect(&self, options: &InstallOptions) -> Result<DetectionResult> {
         let home = options.resolve_home_dir()?;
         let gemini_dir = home.join(".gemini");
-        let global_config = gemini_dir.join("config").join("mcp_config.json");
-        let ide_config = gemini_dir.join("antigravity-ide").join("mcp_config.json");
-
-        let config_path = if global_config.exists() {
-            global_config
-        } else if ide_config.exists() {
-            ide_config
-        } else {
-            // Default to canonical global configuration directory ~/.gemini/config/mcp_config.json
-            global_config
-        };
+        let config_path = self.resolve_config_path(options)?;
 
         let antigravity_ide_dir = gemini_dir.join("antigravity-ide");
         let gemini_config_dir = gemini_dir.join("config");
@@ -47,19 +61,7 @@ impl AgentTarget for AntigravityTarget {
     }
 
     fn install(&self, options: &InstallOptions) -> Result<()> {
-        let home = options.resolve_home_dir()?;
-        let gemini_dir = home.join(".gemini");
-        let global_config = gemini_dir.join("config").join("mcp_config.json");
-        let ide_config = gemini_dir.join("antigravity-ide").join("mcp_config.json");
-
-        let config_path = if global_config.exists() {
-            global_config
-        } else if ide_config.exists() {
-            ide_config
-        } else {
-            global_config
-        };
-
+        let config_path = self.resolve_config_path(options)?;
         inject_mcp_server_config(&config_path, &options.command, &options.args)?;
         Ok(())
     }
@@ -72,7 +74,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_antigravity_detection_and_installation() {
+    fn test_antigravity_detection_and_installation_ide_dir() {
         let temp_dir = TempDir::new().unwrap();
         let target = AntigravityTarget;
         let opts = InstallOptions::new().with_home_dir(temp_dir.path());
@@ -80,12 +82,23 @@ mod tests {
         let res = target.detect(&opts).unwrap();
         assert!(!res.is_detected());
 
-        // Create ~/.gemini/config directory (canonical global path)
-        std::fs::create_dir_all(temp_dir.path().join(".gemini").join("config")).unwrap();
+        // Create ~/.gemini/antigravity-ide directory
+        std::fs::create_dir_all(temp_dir.path().join(".gemini").join("antigravity-ide")).unwrap();
 
         let res_detected = target.detect(&opts).unwrap();
         assert!(res_detected.is_detected());
         assert!(!res_detected.is_configured());
+        assert_eq!(
+            res_detected.config_path(),
+            Some(
+                temp_dir
+                    .path()
+                    .join(".gemini")
+                    .join("antigravity-ide")
+                    .join("mcp_config.json")
+                    .as_path()
+            )
+        );
 
         // Perform install
         target.install(&opts).unwrap();
@@ -94,7 +107,45 @@ mod tests {
         assert!(res_after.is_detected());
         assert!(res_after.is_configured());
 
-        // Verify config content in canonical global directory
+        // Verify config content
+        let config_file = temp_dir
+            .path()
+            .join(".gemini")
+            .join("antigravity-ide")
+            .join("mcp_config.json");
+        let parsed = read_json_value(&config_file).unwrap().unwrap();
+        assert_eq!(
+            parsed["mcpServers"]["memex"]["command"].as_str().unwrap(),
+            "memex"
+        );
+    }
+
+    #[test]
+    fn test_antigravity_detection_and_installation_global_config_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = AntigravityTarget;
+        let opts = InstallOptions::new().with_home_dir(temp_dir.path());
+
+        // Create ~/.gemini/config directory
+        std::fs::create_dir_all(temp_dir.path().join(".gemini").join("config")).unwrap();
+
+        let res_detected = target.detect(&opts).unwrap();
+        assert!(res_detected.is_detected());
+        assert!(!res_detected.is_configured());
+        assert_eq!(
+            res_detected.config_path(),
+            Some(
+                temp_dir
+                    .path()
+                    .join(".gemini")
+                    .join("config")
+                    .join("mcp_config.json")
+                    .as_path()
+            )
+        );
+
+        target.install(&opts).unwrap();
+
         let config_file = temp_dir
             .path()
             .join(".gemini")

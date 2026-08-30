@@ -17,20 +17,20 @@ use crate::errors::{MemexError, Result};
 /// 6. Atomically rename the temporary file to `path`.
 pub fn atomic_write_json(path: &Path, data: &Value) -> Result<()> {
     if path.exists() {
+        let backup_path = backup_path_for(path);
         let is_valid_json = match fs::read_to_string(path) {
             Ok(content) => serde_json::from_str::<Value>(&content).is_ok(),
             Err(_) => false,
         };
 
         if !is_valid_json {
-            let backup_path = backup_path_for(path);
             tracing::warn!(
                 target_path = %path.display(),
                 backup_path = %backup_path.display(),
                 "Existing configuration file contains invalid JSON. Creating backup."
             );
-            fs::copy(path, &backup_path)?;
         }
+        fs::copy(path, &backup_path)?;
     }
 
     if let Some(parent) = path.parent()
@@ -157,7 +157,9 @@ mod tests {
         assert_eq!(read_val, updated_data);
 
         let backup_file = config_file.with_file_name("config.json.backup");
-        assert!(!backup_file.exists());
+        assert!(backup_file.exists());
+        let backup_val = read_json_value(&backup_file).unwrap().unwrap();
+        assert_eq!(backup_val, initial_data);
     }
 
     #[test]

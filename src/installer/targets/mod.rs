@@ -7,10 +7,16 @@ use crate::installer::config_writer::{atomic_write_json, merge_json_value, read_
 pub mod antigravity;
 pub mod claude;
 pub mod cursor;
+pub mod windsurf;
+pub mod zed;
 
 pub use antigravity::AntigravityTarget;
 pub use claude::ClaudeTarget;
 pub use cursor::CursorTarget;
+pub use windsurf::WindsurfTarget;
+pub use zed::{
+    ZedTarget, inject_zed_server_config, is_memex_in_zed_config, make_zed_context_server_config,
+};
 
 /// Result of probing the system for an agent's presence.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,11 +166,13 @@ impl TargetRegistry {
         }
     }
 
-    /// Creates a registry initialized with all default agent targets (Claude, Cursor, Antigravity).
+    /// Creates a registry initialized with all default agent targets (Claude, Cursor, Windsurf, Zed, Antigravity).
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(ClaudeTarget));
         registry.register(Box::new(CursorTarget));
+        registry.register(Box::new(WindsurfTarget));
+        registry.register(Box::new(ZedTarget));
         registry.register(Box::new(AntigravityTarget));
         registry
     }
@@ -421,10 +429,15 @@ mod tests {
         std::fs::create_dir_all(temp_home.join(".claude")).unwrap();
         // Simulate Cursor installed: create ~/.cursor directory
         std::fs::create_dir_all(temp_home.join(".cursor")).unwrap();
+        // Simulate Windsurf installed: create ~/.codeium/windsurf directory
+        std::fs::create_dir_all(temp_home.join(".codeium").join("windsurf")).unwrap();
+        // Simulate Zed installed: create ~/.config/zed directory
+        std::fs::create_dir_all(temp_home.join(".config").join("zed")).unwrap();
         // Simulate Antigravity installed: create ~/.gemini/antigravity-ide directory
         std::fs::create_dir_all(temp_home.join(".gemini").join("antigravity-ide")).unwrap();
 
         let detections_after = registry.detect_all(&opts);
+        assert_eq!(detections_after.len(), 5);
         for (target, detection) in detections_after {
             assert!(
                 detection.is_detected(),
