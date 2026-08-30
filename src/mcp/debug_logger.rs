@@ -230,6 +230,10 @@ impl McpDebugLogger {
             Err(poisoned) => poisoned.into_inner(),
         };
 
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
             let _ = file.write_all(log_line.as_bytes());
             let _ = file.flush();
@@ -242,6 +246,10 @@ impl McpDebugLogger {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
+
+        if let Some(parent) = self.log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
 
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
@@ -462,5 +470,29 @@ mod tests {
         let content = std::fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("[HOOK:prompt-hook]"));
         assert!(content.contains("..."));
+    }
+
+    #[test]
+    fn test_mcp_debug_logger_creates_missing_parent_directories() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let log_path = temp_dir
+            .path()
+            .join("nested")
+            .join("sub")
+            .join("debug_mcp.log");
+
+        // Parent directories "nested/sub" do not exist yet
+        assert!(!log_path.parent().unwrap().exists());
+
+        McpDebugLogger::log_hook_event(
+            &log_path,
+            "TestClient",
+            "testing directory auto-creation",
+            Some("success"),
+        );
+
+        assert!(log_path.exists());
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(content.contains("testing directory auto-creation"));
     }
 }
