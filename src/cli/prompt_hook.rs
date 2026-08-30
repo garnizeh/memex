@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::cli::index::find_project_root;
 use crate::errors::Result;
@@ -12,6 +15,74 @@ use crate::ingestion::embedder::ModelManager;
 use crate::mcp::tools::search_documentation_with_reader;
 use crate::storage::db::Database;
 use crate::storage::reader::StorageReader;
+
+/// Turn cache TTL in seconds for deduplicating repeated prompt-hook calls in multi-step agent turns.
+pub const TURN_CACHE_TTL_SECS: u64 = 60;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HookCache {
+    /// Maps conversation/session ID (or "global") to the last processed turn info.
+    #[serde(default)]
+    pub entries: HashMap<String, TurnCacheEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnCacheEntry {
+    pub prompt_hash: String,
+    pub timestamp_secs: u64,
+}
+
+/// Checks whether this prompt invocation is a duplicate within the active turn TTL window.
+/// If it is a duplicate, returns `true`.
+/// If it is new or expired, updates the cache file with the new prompt hash and timestamp, and returns `false`.
+pub fn check_and_update_turn_cache(
+    cache_path: &Path,
+    conversation_id: Option<&str>,
+    prompt: &str,
+    ttl_secs: u64,
+) -> bool {
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let session_key = conversation_id.unwrap_or("global");
+
+    let mut hasher = Sha256::new();
+    hasher.update(prompt.as_bytes());
+    let prompt_hash = hex::encode(hasher.finalize());
+
+    let mut cache = if let Ok(file_content) = std::fs::read_to_string(cache_path) {
+        serde_json::from_str::<HookCache>(&file_content).unwrap_or_default()
+    } else {
+        HookCache::default()
+    };
+
+    if let Some(entry) = cache.entries.get(session_key)
+        && entry.prompt_hash == prompt_hash
+        && now_secs.saturating_sub(entry.timestamp_secs) < ttl_secs
+    {
+        return true;
+    }
+
+    cache.entries.insert(
+        session_key.to_string(),
+        TurnCacheEntry {
+            prompt_hash,
+            timestamp_secs: now_secs,
+        },
+    );
+
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    if let Ok(serialized) = serde_json::to_string(&cache) {
+        let _ = std::fs::write(cache_path, serialized);
+    }
+
+    false
+}
 
 /// Payload received from Claude Code or Antigravity via stdin.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -214,6 +285,27 @@ pub fn run_prompt_hook(debug: bool) -> Result<()> {
     };
 
     let log_path = root.join(".memex").join("debug_mcp.log");
+    let cache_path = root.join(".memex").join(".hook_cache");
+
+    let conversation_id = parsed_input
+        .as_ref()
+        .and_then(|p| p.conversation_id.as_deref());
+    if check_and_update_turn_cache(
+        &cache_path,
+        conversation_id,
+        &prompt_text,
+        TURN_CACHE_TTL_SECS,
+    ) {
+        if is_debug {
+            crate::mcp::McpDebugLogger::log_hook_event(
+                &log_path,
+                client_tag,
+                &prompt_text,
+                Some("skipped duplicate prompt in active turn window (dedup hit)"),
+            );
+        }
+        return emit_empty_response(is_antigravity);
+    }
 
     let mut db_path = root.join(".memex").join("memex.db");
     if !db_path.exists() {
@@ -464,5 +556,73 @@ mod tests {
         assert!(serialized.contains("injectSteps"));
         assert!(serialized.contains("ephemeralMessage"));
         assert!(serialized.contains("<memex_context>test</memex_context>"));
+    }
+
+    #[test]
+    fn test_turn_cache_deduplication() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_path = temp_dir.path().join(".hook_cache");
+
+        let conv_id = Some("conv-123");
+        let prompt_a = "how does indexing work?";
+        let prompt_b = "explain vector embeddings";
+
+        // 1. Initial call for prompt A -> not duplicate (returns false)
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            conv_id,
+            prompt_a,
+            60
+        ));
+        assert!(cache_path.exists());
+
+        // 2. Second call for prompt A immediately -> duplicate (returns true)
+        assert!(check_and_update_turn_cache(
+            &cache_path,
+            conv_id,
+            prompt_a,
+            60
+        ));
+
+        // 3. Different prompt B in same conversation -> not duplicate (returns false)
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            conv_id,
+            prompt_b,
+            60
+        ));
+
+        // 4. Repeated call for prompt B -> duplicate (returns true)
+        assert!(check_and_update_turn_cache(
+            &cache_path,
+            conv_id,
+            prompt_b,
+            60
+        ));
+
+        // 5. Another conversation with prompt B -> not duplicate because of different session key
+        let other_conv = Some("conv-456");
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            other_conv,
+            prompt_b,
+            60
+        ));
+        assert!(check_and_update_turn_cache(
+            &cache_path,
+            other_conv,
+            prompt_b,
+            60
+        ));
+
+        // 6. Test TTL expiration (ttl = 0 sec should always be considered expired on subsequent call)
+        // With ttl_secs = 0, elapsed >= 0 is always true (unless timestamp is future, which it is not)
+        // Let's verify with ttl_secs = 0
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            conv_id,
+            prompt_b,
+            0
+        ));
     }
 }
