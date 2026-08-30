@@ -35,6 +35,10 @@ pub enum Commands {
         /// Run non-interactively with default options
         #[arg(short = 'y', long)]
         yes: bool,
+
+        /// Enable verbose MCP request debug logging into .memex/debug_mcp.log
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Initialize Memex in a project directory and build the initial index
@@ -76,11 +80,19 @@ pub enum Commands {
         /// Run in MCP mode communicating over stdio
         #[arg(long, default_value_t = true)]
         mcp: bool,
+
+        /// Enable verbose MCP request debug logging into .memex/debug_mcp.log
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Claude Code UserPromptSubmit prehook command for automated context injection
     #[command(name = "prompt-hook")]
-    PromptHook,
+    PromptHook {
+        /// Enable verbose MCP request debug logging into .memex/debug_mcp.log
+        #[arg(long)]
+        debug: bool,
+    },
 }
 
 #[tokio::main]
@@ -93,8 +105,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Install { target, yes } => {
-            cli::install::run_install(target.as_deref(), yes)?;
+        Commands::Install { target, yes, debug } => {
+            cli::install::run_install(target.as_deref(), yes, debug)?;
         }
         Commands::Init {
             path,
@@ -110,11 +122,11 @@ async fn main() -> anyhow::Result<()> {
         } => {
             cli::index::run_index(&path, quiet, verbose)?;
         }
-        Commands::Serve { path, mcp } => {
-            cli::serve::run_serve(path.as_deref(), mcp).await?;
+        Commands::Serve { path, mcp, debug } => {
+            cli::serve::run_serve(path.as_deref(), mcp, debug).await?;
         }
-        Commands::PromptHook => {
-            cli::prompt_hook::run_prompt_hook()?;
+        Commands::PromptHook { debug } => {
+            cli::prompt_hook::run_prompt_hook(debug)?;
         }
     }
 

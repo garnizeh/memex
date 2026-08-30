@@ -237,8 +237,8 @@ pub fn install_with_options<R: BufRead, W: Write>(
 }
 
 /// Executes the `install` command.
-pub fn run_install(target: Option<&str>, yes: bool) -> Result<()> {
-    let options = InstallOptions::default();
+pub fn run_install(target: Option<&str>, yes: bool, debug: bool) -> Result<()> {
+    let options = InstallOptions::default().with_debug(debug);
     let registry = TargetRegistry::with_defaults();
     let mut stdin = std::io::stdin().lock();
     let mut stdout = std::io::stdout();
@@ -636,5 +636,40 @@ mod tests {
         let updated_val = read_json_value(&cursor_json).unwrap().unwrap();
         assert_eq!(updated_val["mcpServers"]["custom"]["command"], "custom");
         assert_eq!(updated_val["mcpServers"]["memex"]["command"], "memex");
+    }
+
+    #[test]
+    fn test_install_with_debug_flag() {
+        let temp_dir = TempDir::new().unwrap();
+        let home_dir = temp_dir.path().join("home");
+        std::fs::create_dir_all(home_dir.join(".cursor")).unwrap();
+
+        let options = InstallOptions::new()
+            .with_home_dir(&home_dir)
+            .with_debug(true);
+        let registry = TargetRegistry::with_defaults();
+
+        let mut input = Cursor::new(b"");
+        let mut output = Vec::new();
+
+        let installed = install_with_options(
+            Some("cursor"),
+            true,
+            &options,
+            &registry,
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(installed, vec!["cursor"]);
+
+        let cursor_json = home_dir.join(".cursor").join("mcp.json");
+        let updated_val = read_json_value(&cursor_json).unwrap().unwrap();
+        let args = updated_val["mcpServers"]["memex"]["args"]
+            .as_array()
+            .unwrap();
+        let args_str: Vec<&str> = args.iter().map(|a| a.as_str().unwrap()).collect();
+        assert_eq!(args_str, vec!["serve", "--mcp", "--debug"]);
     }
 }

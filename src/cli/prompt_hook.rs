@@ -141,9 +141,14 @@ fn emit_empty_response(is_antigravity: bool) -> Result<()> {
 /// queries top-k documentation chunks using semantic search, and outputs structured XML context:
 /// - Verbatim XML text for Claude Code
 /// - Structured `injectSteps` JSON for Antigravity IDE
-pub fn run_prompt_hook() -> Result<()> {
+pub fn run_prompt_hook(debug: bool) -> Result<()> {
     let mut stdin_buffer = String::new();
     let _ = io::stdin().read_to_string(&mut stdin_buffer);
+
+    let is_debug = debug
+        || std::env::var("MEMEX_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
 
     let parsed_input = serde_json::from_str::<PromptHookInput>(&stdin_buffer).ok();
     let is_antigravity = parsed_input
@@ -186,10 +191,29 @@ pub fn run_prompt_hook() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
+    let client_tag = if is_antigravity {
+        "Antigravity"
+    } else {
+        "Claude Code"
+    };
+
     let root = match find_project_root(&cwd) {
         Ok(r) => r,
-        Err(_) => return emit_empty_response(is_antigravity),
+        Err(e) => {
+            if is_debug {
+                let log_path = cwd.join(".memex").join("debug_mcp.log");
+                crate::mcp::McpDebugLogger::log_hook_event(
+                    &log_path,
+                    client_tag,
+                    &prompt_text,
+                    Some(&format!("failed to find project root: {e}")),
+                );
+            }
+            return emit_empty_response(is_antigravity);
+        }
     };
+
+    let log_path = root.join(".memex").join("debug_mcp.log");
 
     let mut db_path = root.join(".memex").join("memex.db");
     if !db_path.exists() {
@@ -197,32 +221,88 @@ pub fn run_prompt_hook() -> Result<()> {
         if alt.exists() {
             db_path = alt;
         } else {
+            if is_debug {
+                crate::mcp::McpDebugLogger::log_hook_event(
+                    &log_path,
+                    client_tag,
+                    &prompt_text,
+                    Some("database not found (.memex/memex.db)"),
+                );
+            }
             return emit_empty_response(is_antigravity);
         }
     }
 
     let db = match Database::open_readonly(&db_path) {
         Ok(d) => d,
-        Err(_) => return emit_empty_response(is_antigravity),
+        Err(e) => {
+            if is_debug {
+                crate::mcp::McpDebugLogger::log_hook_event(
+                    &log_path,
+                    client_tag,
+                    &prompt_text,
+                    Some(&format!("failed to open database: {e}")),
+                );
+            }
+            return emit_empty_response(is_antigravity);
+        }
     };
 
     let assets = match ModelManager::ensure_model_assets() {
         Ok(a) => a,
-        Err(_) => return emit_empty_response(is_antigravity),
+        Err(e) => {
+            if is_debug {
+                crate::mcp::McpDebugLogger::log_hook_event(
+                    &log_path,
+                    client_tag,
+                    &prompt_text,
+                    Some(&format!("failed to load model assets: {e}")),
+                );
+            }
+            return emit_empty_response(is_antigravity);
+        }
     };
 
     let engine = match EmbeddingEngine::new(&assets) {
         Ok(e) => e,
-        Err(_) => return emit_empty_response(is_antigravity),
+        Err(e) => {
+            if is_debug {
+                crate::mcp::McpDebugLogger::log_hook_event(
+                    &log_path,
+                    client_tag,
+                    &prompt_text,
+                    Some(&format!("failed to create embedding engine: {e}")),
+                );
+            }
+            return emit_empty_response(is_antigravity);
+        }
     };
 
     let reader = StorageReader::new(db.conn());
     let results = match search_documentation_with_reader(&reader, &engine, &prompt_text, 3) {
         Ok(r) => r,
-        Err(_) => return emit_empty_response(is_antigravity),
+        Err(e) => {
+            if is_debug {
+                crate::mcp::McpDebugLogger::log_hook_event(
+                    &log_path,
+                    client_tag,
+                    &prompt_text,
+                    Some(&format!("search query failed: {e}")),
+                );
+            }
+            return emit_empty_response(is_antigravity);
+        }
     };
 
     if results.is_empty() {
+        if is_debug {
+            crate::mcp::McpDebugLogger::log_hook_event(
+                &log_path,
+                client_tag,
+                &prompt_text,
+                Some("0 results matched across 0 documents (no context injected)"),
+            );
+        }
         return emit_empty_response(is_antigravity);
     }
 
@@ -244,6 +324,16 @@ pub fn run_prompt_hook() -> Result<()> {
     } else {
         "results"
     };
+
+    if is_debug {
+        let summary = format!("{result_count} {res_str} across {doc_count} {doc_str}");
+        crate::mcp::McpDebugLogger::log_hook_event(
+            &log_path,
+            client_tag,
+            &prompt_text,
+            Some(&summary),
+        );
+    }
 
     // Format XML context matching agent harness expectations
     let mut xml_output = format!(
