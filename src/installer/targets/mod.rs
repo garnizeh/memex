@@ -124,6 +124,18 @@ impl InstallOptions {
         self
     }
 
+    /// Enables or disables the MCP debug logging argument.
+    pub fn with_debug(mut self, debug: bool) -> Self {
+        if debug {
+            if !self.args.iter().any(|a| a == "--debug") {
+                self.args.push("--debug".to_string());
+            }
+        } else {
+            self.args.retain(|a| a != "--debug");
+        }
+        self
+    }
+
     /// Resolves the effective home directory.
     pub fn resolve_home_dir(&self) -> Result<PathBuf> {
         if let Some(ref home) = self.home_dir {

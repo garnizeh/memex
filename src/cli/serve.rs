@@ -19,6 +19,7 @@ pub struct McpServer {
     target_path: Option<std::path::PathBuf>,
     db: Arc<Mutex<Option<(std::path::PathBuf, Database)>>>,
     engine: Arc<EmbeddingEngine>,
+    debug_logger: Option<Arc<crate::mcp::McpDebugLogger>>,
 }
 
 impl McpServer {
@@ -71,7 +72,14 @@ impl McpServer {
             target_path: project_path.map(|p| p.to_path_buf()),
             db: Arc::new(Mutex::new(initial_db)),
             engine,
+            debug_logger: None,
         })
+    }
+
+    /// Attaches an `McpDebugLogger` to record incoming requests and client info.
+    pub fn with_debug_logger(mut self, logger: crate::mcp::McpDebugLogger) -> Self {
+        self.debug_logger = Some(Arc::new(logger));
+        self
     }
 
     /// Creates an `McpServer` with an explicitly provided `Database` and `EmbeddingEngine` (useful for testing).
@@ -80,6 +88,7 @@ impl McpServer {
             target_path: None,
             db: Arc::new(Mutex::new(Some((std::path::PathBuf::from("/"), db)))),
             engine,
+            debug_logger: None,
         }
     }
 
@@ -93,6 +102,7 @@ impl McpServer {
             target_path: Some(root.clone()),
             db: Arc::new(Mutex::new(Some((root, db)))),
             engine,
+            debug_logger: None,
         }
     }
 
@@ -128,6 +138,24 @@ impl McpServer {
 
     /// Handles an incoming JSON-RPC request synchronously.
     pub fn handle_request_sync(&self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+        // Debug logging dispatch
+        if let Some(ref logger) = self.debug_logger {
+            if req.method == "initialize" {
+                logger.on_initialize(req.params.as_ref());
+            } else if req.method == "tools/call" {
+                let tool_name = req
+                    .params
+                    .as_ref()
+                    .and_then(|p| p.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                let tool_args = req.params.as_ref().and_then(|p| p.get("arguments"));
+                logger.log_tool_call(tool_name, tool_args);
+            } else {
+                logger.log_event(&req.method, req.params.as_ref());
+            }
+        }
+
         // 1. Check protocol handshake / tools listing first (always works even if uninitialized)
         if let Some(resp) = handle_handshake_or_tools(&req) {
             return resp;
@@ -263,12 +291,16 @@ impl RequestHandler for McpServer {
 ///
 /// Starts the JSON-RPC stdio transport loop reading from stdin and writing to stdout.
 /// Diagnostics, progress, and logs are strictly sent to stderr.
-pub async fn run_serve(target_path: Option<&Path>, mcp: bool) -> Result<()> {
+pub async fn run_serve(target_path: Option<&Path>, mcp: bool, debug: bool) -> Result<()> {
     if !mcp {
         tracing::warn!(target: "mcp", "Serve called without --mcp flag; defaulting to MCP stdio mode");
     }
 
-    let server = McpServer::new(target_path)?;
+    let mut server = McpServer::new(target_path)?;
+    if debug && let Some(logger) = crate::mcp::McpDebugLogger::new(target_path) {
+        tracing::info!(target: "mcp", "MCP debug logging enabled (writing to .memex/debug_mcp.log)");
+        server = server.with_debug_logger(logger);
+    }
 
     if let Some(path) = target_path {
         tracing::info!(target: "mcp", "Memex MCP server running on stdio for target path: {}", path.display());

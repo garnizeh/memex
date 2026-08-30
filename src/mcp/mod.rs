@@ -1,7 +1,9 @@
+pub mod debug_logger;
 pub mod tools;
 pub mod transport;
 pub mod types;
 
+pub use debug_logger::McpDebugLogger;
 pub use tools::{
     DEFAULT_SEARCH_LIMIT, DEFAULT_TRAVERSE_DEPTH, DocSearchResult, MAX_SEARCH_LIMIT,
     MAX_TRAVERSE_DEPTH, format_search_markdown, format_subgraph_markdown,
