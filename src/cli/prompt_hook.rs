@@ -12,6 +12,7 @@ use crate::cli::index::find_project_root;
 use crate::errors::Result;
 use crate::ingestion::embedder::EmbeddingEngine;
 use crate::ingestion::embedder::ModelManager;
+use crate::installer::config_writer::atomic_write_json;
 use crate::mcp::tools::search_documentation_with_reader;
 use crate::storage::db::Database;
 use crate::storage::reader::StorageReader;
@@ -21,32 +22,30 @@ pub const TURN_CACHE_TTL_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HookCache {
-    /// Maps conversation/session ID (or "global") to the last processed turn info.
+    /// Maps conversation/session ID to active prompt hashes and their timestamps.
     #[serde(default)]
-    pub entries: HashMap<String, TurnCacheEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TurnCacheEntry {
-    pub prompt_hash: String,
-    pub timestamp_secs: u64,
+    pub conversations: HashMap<String, HashMap<String, u64>>,
 }
 
 /// Checks whether this prompt invocation is a duplicate within the active turn TTL window.
-/// If it is a duplicate, returns `true`.
-/// If it is new or expired, updates the cache file with the new prompt hash and timestamp, and returns `false`.
+/// If `conversation_id` is None, deduplication is bypassed and returns `false`.
+/// If it is a duplicate within the conversation's TTL window, returns `true`.
+/// Otherwise, records the prompt hash timestamp, prunes expired entries, and returns `false`.
 pub fn check_and_update_turn_cache(
     cache_path: &Path,
     conversation_id: Option<&str>,
     prompt: &str,
     ttl_secs: u64,
 ) -> bool {
+    let session_key = match conversation_id {
+        Some(id) if !id.trim().is_empty() => id.trim(),
+        _ => return false,
+    };
+
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-
-    let session_key = conversation_id.unwrap_or("global");
 
     let mut hasher = Sha256::new();
     hasher.update(prompt.as_bytes());
@@ -58,27 +57,33 @@ pub fn check_and_update_turn_cache(
         HookCache::default()
     };
 
-    if let Some(entry) = cache.entries.get(session_key)
-        && entry.prompt_hash == prompt_hash
-        && now_secs.saturating_sub(entry.timestamp_secs) < ttl_secs
-    {
+    let conv_entries = cache
+        .conversations
+        .entry(session_key.to_string())
+        .or_default();
+
+    // Check if current prompt was already queried within TTL
+    let is_duplicate = if let Some(&timestamp_secs) = conv_entries.get(&prompt_hash) {
+        now_secs.saturating_sub(timestamp_secs) < ttl_secs
+    } else {
+        false
+    };
+
+    if is_duplicate {
         return true;
     }
 
-    cache.entries.insert(
-        session_key.to_string(),
-        TurnCacheEntry {
-            prompt_hash,
-            timestamp_secs: now_secs,
-        },
-    );
+    // Insert / update timestamp for current prompt
+    conv_entries.insert(prompt_hash, now_secs);
 
-    if let Some(parent) = cache_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    // Prune expired entries across all conversations
+    for entries in cache.conversations.values_mut() {
+        entries.retain(|_, &mut ts| now_secs.saturating_sub(ts) < ttl_secs);
     }
+    cache.conversations.retain(|_, entries| !entries.is_empty());
 
-    if let Ok(serialized) = serde_json::to_string(&cache) {
-        let _ = std::fs::write(cache_path, serialized);
+    if let Ok(json_val) = serde_json::to_value(&cache) {
+        let _ = atomic_write_json(cache_path, &json_val);
     }
 
     false
@@ -615,14 +620,32 @@ mod tests {
             60
         ));
 
-        // 6. Test TTL expiration (ttl = 0 sec should always be considered expired on subsequent call)
-        // With ttl_secs = 0, elapsed >= 0 is always true (unless timestamp is future, which it is not)
-        // Let's verify with ttl_secs = 0
-        assert!(!check_and_update_turn_cache(
+        // 7. Test A -> B -> A sequence within same TTL (A should still be deduplicated because both hashes are retained)
+        assert!(check_and_update_turn_cache(
             &cache_path,
             conv_id,
-            prompt_b,
-            0
+            prompt_a,
+            60
+        ));
+
+        // 8. Test None or empty conversation_id bypasses deduplication
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            None,
+            prompt_a,
+            60
+        ));
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            None,
+            prompt_a,
+            60
+        ));
+        assert!(!check_and_update_turn_cache(
+            &cache_path,
+            Some("  "),
+            prompt_a,
+            60
         ));
     }
 }
