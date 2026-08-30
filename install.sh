@@ -62,8 +62,11 @@ main() {
 
     mkdir -p "$INSTALL_DIR"
     tar -xzf "$TMP_DIR/$ARTIFACT_NAME" -C "$TMP_DIR"
-    cp "$TMP_DIR/memex" "$INSTALL_DIR/memex"
-    chmod +x "$INSTALL_DIR/memex"
+    chmod +x "$TMP_DIR/memex"
+
+    # Avoid "Text file busy" (ETXTBSY) when overwriting a running binary
+    # by using atomic rename (mv) instead of direct in-place copy (cp)
+    mv -f "$TMP_DIR/memex" "$INSTALL_DIR/memex"
 
     echo "✓ Installed memex binary to $INSTALL_DIR/memex"
 
