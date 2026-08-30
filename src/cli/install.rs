@@ -459,7 +459,7 @@ mod tests {
         assert!(
             home_dir
                 .join(".gemini")
-                .join("antigravity-ide")
+                .join("config")
                 .join("mcp_config.json")
                 .exists()
         );
@@ -507,7 +507,7 @@ mod tests {
         assert!(
             home_dir
                 .join(".gemini")
-                .join("antigravity-ide")
+                .join("config")
                 .join("mcp_config.json")
                 .exists()
         );

@@ -2,7 +2,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use crate::errors::Result;
-use crate::installer::config_writer::{atomic_write_json, merge_json_value, read_json_value};
+use crate::installer::config_writer::{atomic_write_json, merge_json_value, read_jsonc_value};
 use crate::installer::targets::{AgentTarget, DetectionResult, InstallOptions};
 
 /// Agent target for Zed editor.
@@ -19,20 +19,15 @@ impl ZedTarget {
             }
         }
 
-        let home = options.resolve_home_dir()?;
-        let linux_config = home.join(".config").join("zed").join("settings.json");
-        let mac_config = home
-            .join("Library")
-            .join("Application Support")
-            .join("Zed")
-            .join("settings.json");
-
-        if mac_config.exists() {
-            Ok(mac_config)
-        } else {
-            // Default canonical path: ~/.config/zed/settings.json
-            Ok(linux_config)
+        if options.home_dir.is_none()
+            && let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
+            && !xdg.trim().is_empty()
+        {
+            return Ok(PathBuf::from(xdg).join("zed").join("settings.json"));
         }
+
+        let home = options.resolve_home_dir()?;
+        Ok(home.join(".config").join("zed").join("settings.json"))
     }
 }
 
@@ -48,9 +43,9 @@ pub fn make_zed_context_server_config(command: &str, args: &[String]) -> Value {
     })
 }
 
-/// Checks if `context_servers.memex` exists in Zed's `settings.json`.
+/// Checks if `context_servers.memex` exists in Zed's `settings.json` (supporting JSONC comments).
 pub fn is_memex_in_zed_config(config_path: &Path) -> bool {
-    if let Ok(Some(value)) = read_json_value(config_path)
+    if let Ok(Some(value)) = read_jsonc_value(config_path)
         && let Some(context_servers) = value.get("context_servers").and_then(|v| v.as_object())
     {
         return context_servers.contains_key("memex");
@@ -58,10 +53,10 @@ pub fn is_memex_in_zed_config(config_path: &Path) -> bool {
     false
 }
 
-/// Injects or updates `context_servers.memex` into Zed's `settings.json`.
+/// Injects or updates `context_servers.memex` into Zed's `settings.json` (supporting JSONC comments).
 pub fn inject_zed_server_config(config_path: &Path, command: &str, args: &[String]) -> Result<()> {
     let snippet = make_zed_context_server_config(command, args);
-    let mut config = read_json_value(config_path)?.unwrap_or_else(|| serde_json::json!({}));
+    let mut config = read_jsonc_value(config_path)?.unwrap_or_else(|| serde_json::json!({}));
     merge_json_value(&mut config, &snippet);
     atomic_write_json(config_path, &config)?;
     Ok(())
@@ -77,8 +72,6 @@ impl AgentTarget for ZedTarget {
     }
 
     fn detect(&self, options: &InstallOptions) -> Result<DetectionResult> {
-        let target_config = self.resolve_settings_path(options)?;
-
         if let Some(ref workspace) = options.workspace_dir {
             let local_zed_dir = workspace.join(".zed");
             let local_zed_settings = local_zed_dir.join("settings.json");
@@ -92,11 +85,11 @@ impl AgentTarget for ZedTarget {
             }
         }
 
+        let target_config = self.resolve_settings_path(options)?;
         let home = options.resolve_home_dir()?;
         let config_zed_dir = home.join(".config").join("zed");
-        let mac_zed_dir = home.join("Library").join("Application Support").join("Zed");
 
-        if target_config.exists() || config_zed_dir.exists() || mac_zed_dir.exists() {
+        if target_config.exists() || config_zed_dir.exists() {
             let is_configured = is_memex_in_zed_config(&target_config);
             Ok(DetectionResult::Detected {
                 config_path: target_config,
@@ -168,7 +161,7 @@ mod tests {
             .join(".config")
             .join("zed")
             .join("settings.json");
-        let parsed = read_json_value(&config_path).unwrap().unwrap();
+        let parsed = read_jsonc_value(&config_path).unwrap().unwrap();
         assert_eq!(
             parsed["context_servers"]["memex"]["command"]
                 .as_str()
@@ -217,7 +210,7 @@ mod tests {
 
         target.install(&opts).unwrap();
 
-        let parsed = read_json_value(&config_path).unwrap().unwrap();
+        let parsed = read_jsonc_value(&config_path).unwrap().unwrap();
         assert_eq!(parsed["theme"].as_str().unwrap(), "One Dark");
         assert_eq!(parsed["buffer_font_size"].as_i64().unwrap(), 14);
         assert_eq!(
@@ -231,6 +224,60 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "memex"
+        );
+    }
+
+    #[test]
+    fn test_zed_parses_and_merges_settings_with_jsonc_comments() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = ZedTarget;
+        let opts = InstallOptions::new().with_home_dir(temp_dir.path());
+
+        let config_path = temp_dir
+            .path()
+            .join(".config")
+            .join("zed")
+            .join("settings.json");
+        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+
+        let raw_jsonc = r#"
+        // Zed custom user configuration
+        {
+            "theme": "Solarized Dark", // editor color scheme
+            /* Context Servers definition */
+            "context_servers": {
+                "custom_tool": {
+                    "command": "custom-cmd"
+                }
+            }
+        }
+        "#;
+        std::fs::write(&config_path, raw_jsonc).unwrap();
+
+        // Installation must parse JSONC comments successfully without error
+        target
+            .install(&opts)
+            .expect("install into JSONC settings must succeed");
+
+        let parsed = read_jsonc_value(&config_path).unwrap().unwrap();
+        assert_eq!(parsed["theme"].as_str().unwrap(), "Solarized Dark");
+        assert_eq!(
+            parsed["context_servers"]["custom_tool"]["command"]
+                .as_str()
+                .unwrap(),
+            "custom-cmd"
+        );
+        assert_eq!(
+            parsed["context_servers"]["memex"]["command"]
+                .as_str()
+                .unwrap(),
+            "memex"
+        );
+        assert_eq!(
+            parsed["context_servers"]["memex"]["args"][0]
+                .as_str()
+                .unwrap(),
+            "serve"
         );
     }
 }

@@ -13,16 +13,16 @@ impl WindsurfTarget {
     /// Resolves the target MCP configuration path for Windsurf.
     pub fn resolve_mcp_config_path(&self, options: &InstallOptions) -> Result<PathBuf> {
         if let Some(ref workspace) = options.workspace_dir {
-            let local_codeium = workspace
-                .join(".codeium")
-                .join("windsurf")
-                .join("mcp_config.json");
-            let local_windsurf = workspace.join(".windsurf").join("mcp_config.json");
-            if local_codeium.exists() {
-                return Ok(local_codeium);
+            let local_codeium_dir = workspace.join(".codeium").join("windsurf");
+            let local_codeium_file = local_codeium_dir.join("mcp_config.json");
+            let local_windsurf_dir = workspace.join(".windsurf");
+            let local_windsurf_file = local_windsurf_dir.join("mcp_config.json");
+
+            if local_codeium_file.exists() || local_codeium_dir.exists() {
+                return Ok(local_codeium_file);
             }
-            if local_windsurf.exists() {
-                return Ok(local_windsurf);
+            if local_windsurf_file.exists() || local_windsurf_dir.exists() {
+                return Ok(local_windsurf_file);
             }
         }
 
@@ -44,11 +44,11 @@ impl AgentTarget for WindsurfTarget {
     }
 
     fn detect(&self, options: &InstallOptions) -> Result<DetectionResult> {
-        let target_config = self.resolve_mcp_config_path(options)?;
-
         if let Some(ref workspace) = options.workspace_dir {
             let local_codeium_dir = workspace.join(".codeium").join("windsurf");
             let local_windsurf_dir = workspace.join(".windsurf");
+            let target_config = self.resolve_mcp_config_path(options)?;
+
             if local_codeium_dir.exists() || local_windsurf_dir.exists() || target_config.exists() {
                 let is_configured = is_memex_in_mcp_config(&target_config);
                 return Ok(DetectionResult::Detected {
@@ -60,6 +60,7 @@ impl AgentTarget for WindsurfTarget {
         }
 
         let home = options.resolve_home_dir()?;
+        let target_config = self.resolve_mcp_config_path(options)?;
         let codeium_windsurf_dir = home.join(".codeium").join("windsurf");
         let codeium_dir = home.join(".codeium");
 
@@ -148,6 +149,46 @@ mod tests {
         assert_eq!(
             parsed["mcpServers"]["memex"]["args"][1].as_str().unwrap(),
             "--mcp"
+        );
+    }
+
+    #[test]
+    fn test_windsurf_workspace_detection_and_installation() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        std::fs::create_dir_all(workspace.join(".codeium").join("windsurf")).unwrap();
+
+        let target = WindsurfTarget;
+        let opts = InstallOptions::new().with_workspace_dir(&workspace);
+
+        let res_detected = target.detect(&opts).unwrap();
+        assert!(res_detected.is_detected());
+        assert!(!res_detected.is_configured());
+        assert_eq!(
+            res_detected.config_path(),
+            Some(
+                workspace
+                    .join(".codeium")
+                    .join("windsurf")
+                    .join("mcp_config.json")
+                    .as_path()
+            )
+        );
+
+        target.install(&opts).unwrap();
+
+        let res_after = target.detect(&opts).unwrap();
+        assert!(res_after.is_detected());
+        assert!(res_after.is_configured());
+
+        let config_file = workspace
+            .join(".codeium")
+            .join("windsurf")
+            .join("mcp_config.json");
+        let parsed = read_json_value(&config_file).unwrap().unwrap();
+        assert_eq!(
+            parsed["mcpServers"]["memex"]["command"].as_str().unwrap(),
+            "memex"
         );
     }
 }
