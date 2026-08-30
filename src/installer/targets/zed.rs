@@ -19,6 +19,10 @@ impl ZedTarget {
             }
         }
 
+        if let Some(ref xdg) = options.xdg_config_home {
+            return Ok(xdg.join("zed").join("settings.json"));
+        }
+
         if options.home_dir.is_none()
             && let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
             && !xdg.trim().is_empty()
@@ -287,26 +291,13 @@ mod tests {
         let zed_dir = custom_xdg.join("zed");
         std::fs::create_dir_all(&zed_dir).unwrap();
 
-        let old_val = std::env::var_os("XDG_CONFIG_HOME");
-        unsafe {
-            std::env::set_var("XDG_CONFIG_HOME", &custom_xdg);
-        }
-
         let target = ZedTarget;
-        let opts = InstallOptions::new(); // no explicit home_dir override
+        let opts = InstallOptions::new().with_xdg_config_home(&custom_xdg);
         let detected = target.detect(&opts).unwrap();
         assert!(detected.is_detected());
         assert_eq!(
             detected.config_path(),
             Some(zed_dir.join("settings.json").as_path())
         );
-
-        unsafe {
-            if let Some(val) = old_val {
-                std::env::set_var("XDG_CONFIG_HOME", val);
-            } else {
-                std::env::remove_var("XDG_CONFIG_HOME");
-            }
-        }
     }
 }

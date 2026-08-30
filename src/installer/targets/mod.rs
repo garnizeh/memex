@@ -62,6 +62,8 @@ impl DetectionResult {
 pub struct InstallOptions {
     /// Override home directory (useful for testing or custom environments).
     pub home_dir: Option<PathBuf>,
+    /// Override XDG_CONFIG_HOME directory (useful for testing or custom environments).
+    pub xdg_config_home: Option<PathBuf>,
     /// Override workspace directory.
     pub workspace_dir: Option<PathBuf>,
     /// Command to launch Memex (defaults to "memex").
@@ -76,6 +78,7 @@ impl Default for InstallOptions {
     fn default() -> Self {
         Self {
             home_dir: None,
+            xdg_config_home: None,
             workspace_dir: None,
             command: "memex".to_string(),
             args: vec!["serve".to_string(), "--mcp".to_string()],
@@ -93,6 +96,12 @@ impl InstallOptions {
     /// Overrides the home directory.
     pub fn with_home_dir<P: Into<PathBuf>>(mut self, home: P) -> Self {
         self.home_dir = Some(home.into());
+        self
+    }
+
+    /// Overrides the XDG_CONFIG_HOME directory.
+    pub fn with_xdg_config_home<P: Into<PathBuf>>(mut self, xdg: P) -> Self {
+        self.xdg_config_home = Some(xdg.into());
         self
     }
 
