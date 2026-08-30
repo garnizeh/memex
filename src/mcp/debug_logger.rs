@@ -12,6 +12,7 @@ use crate::cli::index::find_project_root;
 pub struct McpDebugLogger {
     log_path: PathBuf,
     client_name: Arc<Mutex<String>>,
+    write_lock: Arc<Mutex<()>>,
 }
 
 impl McpDebugLogger {
@@ -34,6 +35,7 @@ impl McpDebugLogger {
         Some(Self {
             log_path,
             client_name: Arc::new(Mutex::new("Unknown".to_string())),
+            write_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -45,6 +47,7 @@ impl McpDebugLogger {
         Self {
             log_path,
             client_name: Arc::new(Mutex::new("Unknown".to_string())),
+            write_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -151,9 +154,7 @@ impl McpDebugLogger {
         let timestamp = current_iso_timestamp();
         let pid = std::process::id();
         let id_str = match &response.id {
-            Some(serde_json::Value::Number(n)) => n.to_string(),
-            Some(serde_json::Value::String(s)) => format!("\"{s}\""),
-            Some(v) => v.to_string(),
+            Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "null".to_string()),
             None => "null".to_string(),
         };
 
@@ -206,6 +207,8 @@ impl McpDebugLogger {
         prompt: &str,
         result_summary: Option<&str>,
     ) {
+        static HOOK_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
         let timestamp = current_iso_timestamp();
         let pid = std::process::id();
 
@@ -222,14 +225,24 @@ impl McpDebugLogger {
             "[{timestamp}] [PID:{pid}] [CLIENT:{client}] [HOOK:prompt-hook] PROMPT: {prompt_preview:?} | INJECTED: {summary_str}\n"
         );
 
+        let _guard = match HOOK_WRITE_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
             let _ = file.write_all(log_line.as_bytes());
             let _ = file.flush();
         }
     }
 
-    /// Appends a formatted line atomically using `O_APPEND` single buffer write.
+    /// Appends a formatted line atomically using `write_lock` to serialize concurrent appends.
     fn append_line(&self, line: &str) {
+        let _guard = match self.write_lock.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
             .append(true)
@@ -387,6 +400,11 @@ mod tests {
         let content = std::fs::read_to_string(&log_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines.len(), 500);
+        for line in lines {
+            assert!(line.starts_with('['));
+            assert!(line.contains("[TOOL:search_documentation] ARGS: {"));
+            assert!(line.ends_with('}'));
+        }
     }
 
     #[test]
@@ -413,9 +431,17 @@ mod tests {
         );
         logger.log_response(&err_resp);
 
+        // 3. String ID with newlines / special chars (must be JSON-escaped)
+        let special_id_resp = crate::mcp::types::JsonRpcResponse::success(
+            Some(serde_json::json!("id\nwith\r\nnewlines")),
+            serde_json::json!({ "status": "ok" }),
+        );
+        logger.log_response(&special_id_resp);
+
         let content = std::fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("[RESPONSE:OK] ID:1 RESULT: 1 content item(s)"));
         assert!(content.contains("[RESPONSE:ERROR] ID:2 CODE:-32601 MSG:\"Method not found\""));
+        assert!(content.contains(r#"ID:"id\nwith\r\nnewlines""#));
     }
 
     #[test]
