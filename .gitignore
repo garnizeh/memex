@@ -19,6 +19,11 @@ models/
 *.sublime-workspace
 .DS_Store
 Thumbs.db
+.cursor/
+.cursorrules
+.windsurfrules
+CLAUDE.md
+
 
 # Environment variables & secrets
 .env
