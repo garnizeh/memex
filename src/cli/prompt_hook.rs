@@ -245,6 +245,15 @@ pub fn run_prompt_hook() -> Result<()> {
         "results"
     };
 
+    let log_path = root.join(".memex").join("debug_mcp.log");
+    let client_tag = if is_antigravity {
+        "Antigravity"
+    } else {
+        "Claude Code"
+    };
+    let summary = format!("{result_count} {res_str} across {doc_count} {doc_str}");
+    crate::mcp::McpDebugLogger::log_hook_event(&log_path, client_tag, &prompt_text, Some(&summary));
+
     // Format XML context matching agent harness expectations
     let mut xml_output = format!(
         "<memex_context note=\"Semantic documentation search results from Memex\">\n**Exploration:** {}\n\nFound {} {} across {} {}.\n\n**Documentation References:**\n",

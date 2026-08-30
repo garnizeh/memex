@@ -140,6 +140,34 @@ impl McpDebugLogger {
         self.append_line(&log_line);
     }
 
+    /// Logs a prompt-hook execution event atomically to the given log file.
+    pub fn log_hook_event(
+        log_path: &Path,
+        client: &str,
+        prompt: &str,
+        result_summary: Option<&str>,
+    ) {
+        let timestamp = current_iso_timestamp();
+        let pid = std::process::id();
+
+        let prompt_preview = if prompt.len() > 120 {
+            format!("{}...", &prompt[..120])
+        } else {
+            prompt.to_string()
+        };
+
+        let summary_str = result_summary.unwrap_or("No context injected");
+
+        let log_line = format!(
+            "[{timestamp}] [PID:{pid}] [CLIENT:{client}] [HOOK:prompt-hook] PROMPT: {prompt_preview:?} | INJECTED: {summary_str}\n"
+        );
+
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+            let _ = file.write_all(log_line.as_bytes());
+            let _ = file.flush();
+        }
+    }
+
     /// Appends a formatted line atomically using `O_APPEND` single buffer write.
     fn append_line(&self, line: &str) {
         if let Ok(mut file) = OpenOptions::new()
