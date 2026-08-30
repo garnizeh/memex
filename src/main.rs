@@ -25,9 +25,10 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Interactively wire Memex MCP into local AI agents (Claude Code, Cursor, etc.)
+    /// Interactively wire Memex MCP into local AI agents (Claude Code, Cursor, Windsurf, Zed, Antigravity IDE)
+    #[command(visible_alias = "register")]
     Install {
-        /// Target agent(s) (e.g. claude, cursor, auto)
+        /// Target agent(s) (e.g. claude, cursor, windsurf, zed, antigravity, all)
         #[arg(short, long)]
         target: Option<String>,
 

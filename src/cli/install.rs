@@ -171,7 +171,7 @@ pub fn install_with_options<R: BufRead, W: Write>(
             )?;
             writeln!(
                 writer,
-                "  Use 'memex install --target <claude|cursor|antigravity>' to force configuration."
+                "  Use 'memex install --target <claude|cursor|windsurf|zed|antigravity>' to force configuration."
             )?;
         }
         return Ok(Vec::new());
@@ -206,6 +206,15 @@ pub fn install_with_options<R: BufRead, W: Write>(
                     writer,
                     "  Granted permissions in {} (allow: mcp__memex__*)",
                     settings_path.display()
+                )?;
+            }
+        } else if *target_id == "antigravity" {
+            let antigravity = crate::installer::targets::AntigravityTarget;
+            if let Ok(hooks_path) = antigravity.resolve_hooks_path(options) {
+                writeln!(
+                    writer,
+                    "  Configured PreInvocation hook in {} (command: memex prompt-hook)",
+                    hooks_path.display()
                 )?;
             }
         }
@@ -252,13 +261,15 @@ mod tests {
         let parsed = parse_target_ids("claude", &registry).unwrap();
         assert_eq!(parsed, vec!["claude"]);
 
-        let parsed_multi = parse_target_ids("claude,cursor", &registry).unwrap();
-        assert_eq!(parsed_multi, vec!["claude", "cursor"]);
+        let parsed_multi = parse_target_ids("claude,cursor,windsurf,zed", &registry).unwrap();
+        assert_eq!(parsed_multi, vec!["claude", "cursor", "windsurf", "zed"]);
 
         let parsed_all = parse_target_ids("all", &registry).unwrap();
-        assert_eq!(parsed_all.len(), 3);
+        assert_eq!(parsed_all.len(), 5);
         assert!(parsed_all.contains(&"claude"));
         assert!(parsed_all.contains(&"cursor"));
+        assert!(parsed_all.contains(&"windsurf"));
+        assert!(parsed_all.contains(&"zed"));
         assert!(parsed_all.contains(&"antigravity"));
     }
 
@@ -437,9 +448,23 @@ mod tests {
             install_with_options(None, false, &options, &registry, &mut input, &mut output)
                 .unwrap();
 
-        assert_eq!(installed.len(), 3);
+        assert_eq!(installed.len(), 5);
         assert!(home_dir.join(".claude.json").exists());
         assert!(home_dir.join(".cursor").join("mcp.json").exists());
+        assert!(
+            home_dir
+                .join(".codeium")
+                .join("windsurf")
+                .join("mcp_config.json")
+                .exists()
+        );
+        assert!(
+            home_dir
+                .join(".config")
+                .join("zed")
+                .join("settings.json")
+                .exists()
+        );
         assert!(
             home_dir
                 .join(".gemini")
@@ -471,9 +496,23 @@ mod tests {
         )
         .expect("install all should succeed");
 
-        assert_eq!(installed.len(), 3);
+        assert_eq!(installed.len(), 5);
         assert!(home_dir.join(".claude.json").exists());
         assert!(home_dir.join(".cursor").join("mcp.json").exists());
+        assert!(
+            home_dir
+                .join(".codeium")
+                .join("windsurf")
+                .join("mcp_config.json")
+                .exists()
+        );
+        assert!(
+            home_dir
+                .join(".config")
+                .join("zed")
+                .join("settings.json")
+                .exists()
+        );
         assert!(
             home_dir
                 .join(".gemini")
@@ -518,5 +557,84 @@ mod tests {
         let claude_json = home_dir.join(".claude.json");
         let val = read_json_value(&claude_json).unwrap().unwrap();
         assert_eq!(val["mcpServers"]["memex"]["command"], "memex");
+    }
+
+    #[test]
+    fn test_install_windsurf_and_zed_explicit_targets() {
+        let temp_dir = TempDir::new().unwrap();
+        let home_dir = temp_dir.path().join("home");
+        std::fs::create_dir_all(&home_dir).unwrap();
+
+        let options = InstallOptions::new().with_home_dir(&home_dir);
+        let registry = TargetRegistry::with_defaults();
+
+        let mut input = Cursor::new(b"");
+        let mut output = Vec::new();
+
+        let installed = install_with_options(
+            Some("windsurf,zed"),
+            true,
+            &options,
+            &registry,
+            &mut input,
+            &mut output,
+        )
+        .expect("install windsurf,zed should succeed");
+
+        assert_eq!(installed, vec!["windsurf", "zed"]);
+
+        let windsurf_json = home_dir
+            .join(".codeium")
+            .join("windsurf")
+            .join("mcp_config.json");
+        assert!(windsurf_json.exists());
+        let val_w = read_json_value(&windsurf_json).unwrap().unwrap();
+        assert_eq!(val_w["mcpServers"]["memex"]["command"], "memex");
+
+        let zed_json = home_dir.join(".config").join("zed").join("settings.json");
+        assert!(zed_json.exists());
+        let val_z = read_json_value(&zed_json).unwrap().unwrap();
+        assert_eq!(val_z["context_servers"]["memex"]["command"], "memex");
+    }
+
+    #[test]
+    fn test_install_creates_backup_of_existing_configs() {
+        let temp_dir = TempDir::new().unwrap();
+        let home_dir = temp_dir.path().join("home");
+        std::fs::create_dir_all(home_dir.join(".cursor")).unwrap();
+
+        let cursor_json = home_dir.join(".cursor").join("mcp.json");
+        std::fs::write(
+            &cursor_json,
+            r#"{"mcpServers":{"custom":{"command":"custom"}}}"#,
+        )
+        .unwrap();
+
+        let options = InstallOptions::new().with_home_dir(&home_dir);
+        let registry = TargetRegistry::with_defaults();
+
+        let mut input = Cursor::new(b"");
+        let mut output = Vec::new();
+
+        let installed = install_with_options(
+            Some("cursor"),
+            true,
+            &options,
+            &registry,
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(installed, vec!["cursor"]);
+
+        let backup_file = home_dir.join(".cursor").join("mcp.json.backup");
+        assert!(backup_file.exists());
+        let backup_content = std::fs::read_to_string(&backup_file).unwrap();
+        assert!(backup_content.contains("custom"));
+
+        let updated_val = read_json_value(&cursor_json).unwrap().unwrap();
+        assert_eq!(updated_val["mcpServers"]["custom"]["command"], "custom");
+        assert_eq!(updated_val["mcpServers"]["memex"]["command"], "memex");
     }
 }

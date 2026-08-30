@@ -17,20 +17,20 @@ use crate::errors::{MemexError, Result};
 /// 6. Atomically rename the temporary file to `path`.
 pub fn atomic_write_json(path: &Path, data: &Value) -> Result<()> {
     if path.exists() {
+        let backup_path = backup_path_for(path);
         let is_valid_json = match fs::read_to_string(path) {
             Ok(content) => serde_json::from_str::<Value>(&content).is_ok(),
             Err(_) => false,
         };
 
         if !is_valid_json {
-            let backup_path = backup_path_for(path);
             tracing::warn!(
                 target_path = %path.display(),
                 backup_path = %backup_path.display(),
                 "Existing configuration file contains invalid JSON. Creating backup."
             );
-            fs::copy(path, &backup_path)?;
         }
+        fs::copy(path, &backup_path)?;
     }
 
     if let Some(parent) = path.parent()
@@ -76,6 +76,77 @@ pub fn read_json_value(path: &Path) -> Result<Option<Value>> {
 
     let content = fs::read_to_string(path)?;
     let parsed: Value = serde_json::from_str(&content)?;
+    Ok(Some(parsed))
+}
+
+/// Strips JSONC single-line (`//`) and multi-line (`/* ... */`) comments from a string,
+/// preserving string literals and newlines.
+pub fn strip_jsonc_comments(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+    let mut escape = false;
+
+    while let Some(c) = chars.next() {
+        if in_string {
+            output.push(c);
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+            output.push(c);
+        } else if c == '/' {
+            match chars.peek() {
+                Some('/') => {
+                    // Skip single line comment
+                    chars.next();
+                    for next_c in chars.by_ref() {
+                        if next_c == '\n' {
+                            output.push('\n');
+                            break;
+                        }
+                    }
+                }
+                Some('*') => {
+                    // Skip multi-line comment
+                    chars.next();
+                    let mut prev_star = false;
+                    for next_c in chars.by_ref() {
+                        if next_c == '\n' {
+                            output.push('\n');
+                        }
+                        if prev_star && next_c == '/' {
+                            break;
+                        }
+                        prev_star = next_c == '*';
+                    }
+                }
+                _ => {
+                    output.push(c);
+                }
+            }
+        } else {
+            output.push(c);
+        }
+    }
+
+    output
+}
+
+/// Reads and deserializes a JSON or JSONC configuration file if it exists.
+pub fn read_jsonc_value(path: &Path) -> Result<Option<Value>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path)?;
+    let stripped = strip_jsonc_comments(&content);
+    let parsed: Value = serde_json::from_str(&stripped)?;
     Ok(Some(parsed))
 }
 
@@ -157,7 +228,9 @@ mod tests {
         assert_eq!(read_val, updated_data);
 
         let backup_file = config_file.with_file_name("config.json.backup");
-        assert!(!backup_file.exists());
+        assert!(backup_file.exists());
+        let backup_val = read_json_value(&backup_file).unwrap().unwrap();
+        assert_eq!(backup_val, initial_data);
     }
 
     #[test]
@@ -257,6 +330,62 @@ mod tests {
                     "allow": ["read", "mcp__memex__*"]
                 }
             })
+        );
+    }
+
+    #[test]
+    fn test_strip_jsonc_comments() {
+        let input = r#"
+        // Top level comment
+        {
+            /* block comment */
+            "url": "http://example.com/api//not_a_comment",
+            "name": "memex", // inline comment
+            "nested": {
+                /* multiline
+                   block
+                   comment */
+                "enabled": true
+            }
+        }
+        "#;
+
+        let stripped = strip_jsonc_comments(input);
+        let parsed: Value = serde_json::from_str(&stripped).expect("JSONC should parse valid JSON");
+        assert_eq!(
+            parsed["url"].as_str().unwrap(),
+            "http://example.com/api//not_a_comment"
+        );
+        assert_eq!(parsed["name"].as_str().unwrap(), "memex");
+        assert!(parsed["nested"]["enabled"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_read_jsonc_value_with_comments() {
+        let temp_dir = tempdir().unwrap();
+        let jsonc_file = temp_dir.path().join("settings.json");
+
+        let content = r#"
+        // Zed configuration file
+        {
+            "theme": "One Dark", // Current theme
+            /* Context servers */
+            "context_servers": {
+                "server_a": {
+                    "command": "node"
+                }
+            }
+        }
+        "#;
+        fs::write(&jsonc_file, content).unwrap();
+
+        let val = read_jsonc_value(&jsonc_file).unwrap().unwrap();
+        assert_eq!(val["theme"].as_str().unwrap(), "One Dark");
+        assert_eq!(
+            val["context_servers"]["server_a"]["command"]
+                .as_str()
+                .unwrap(),
+            "node"
         );
     }
 }
