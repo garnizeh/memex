@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::errors::Result;
+use crate::installer::config_writer::{atomic_write_json, read_json_value};
 use crate::installer::targets::{
     AgentTarget, DetectionResult, InstallOptions, inject_mcp_server_config, is_memex_in_mcp_config,
 };
@@ -36,6 +37,78 @@ impl AntigravityTarget {
             Ok(global_config)
         }
     }
+
+    /// Resolves the lifecycle hooks configuration path for Antigravity IDE.
+    pub fn resolve_hooks_path(&self, options: &InstallOptions) -> Result<PathBuf> {
+        if let Some(ref workspace) = options.workspace_dir {
+            let local_agents_dir = workspace.join(".agents");
+            let local_hooks = local_agents_dir.join("hooks.json");
+            return Ok(local_hooks);
+        }
+
+        let home = options.resolve_home_dir()?;
+        let gemini_dir = home.join(".gemini");
+        let ide_hooks = gemini_dir.join("antigravity-ide").join("hooks.json");
+        let global_hooks = gemini_dir.join("config").join("hooks.json");
+
+        if ide_hooks.exists() {
+            Ok(ide_hooks)
+        } else if global_hooks.exists() {
+            Ok(global_hooks)
+        } else if gemini_dir.join("antigravity-ide").exists() {
+            Ok(ide_hooks)
+        } else {
+            Ok(global_hooks)
+        }
+    }
+}
+
+/// Helper function to safely inject the Memex PreInvocation hook into Antigravity's `hooks.json`.
+pub fn inject_antigravity_hooks(hooks_path: &Path) -> Result<()> {
+    let mut root = read_json_value(hooks_path)?.unwrap_or_else(|| serde_json::json!({}));
+
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+
+    let root_obj = root.as_object_mut().expect("hooks root must be an object");
+    let memex_entry = root_obj
+        .entry("memex")
+        .or_insert_with(|| serde_json::json!({}));
+
+    if !memex_entry.is_object() {
+        *memex_entry = serde_json::json!({});
+    }
+
+    let memex_obj = memex_entry
+        .as_object_mut()
+        .expect("memex hook must be an object");
+    let pre_invocation = memex_obj
+        .entry("PreInvocation")
+        .or_insert_with(|| serde_json::json!([]));
+
+    if !pre_invocation.is_array() {
+        *pre_invocation = serde_json::json!([]);
+    }
+
+    let pre_inv_arr = pre_invocation
+        .as_array_mut()
+        .expect("PreInvocation must be an array");
+    let hook_item = serde_json::json!({
+        "type": "command",
+        "command": "memex prompt-hook"
+    });
+
+    let already_present = pre_inv_arr
+        .iter()
+        .any(|item| item.get("command").and_then(|c| c.as_str()) == Some("memex prompt-hook"));
+
+    if !already_present {
+        pre_inv_arr.push(hook_item);
+    }
+
+    atomic_write_json(hooks_path, &root)?;
+    Ok(())
 }
 
 impl AgentTarget for AntigravityTarget {
@@ -87,6 +160,9 @@ impl AgentTarget for AntigravityTarget {
     fn install(&self, options: &InstallOptions) -> Result<()> {
         let config_path = self.resolve_config_path(options)?;
         inject_mcp_server_config(&config_path, &options.command, &options.args)?;
+
+        let hooks_path = self.resolve_hooks_path(options)?;
+        inject_antigravity_hooks(&hooks_path)?;
         Ok(())
     }
 }
@@ -142,6 +218,17 @@ mod tests {
             parsed["mcpServers"]["memex"]["command"].as_str().unwrap(),
             "memex"
         );
+
+        // Verify hooks content
+        let hooks_file = temp_dir
+            .path()
+            .join(".gemini")
+            .join("antigravity-ide")
+            .join("hooks.json");
+        assert!(hooks_file.exists());
+        let parsed_hooks = read_json_value(&hooks_file).unwrap().unwrap();
+        let pre_inv = parsed_hooks["memex"]["PreInvocation"].as_array().unwrap();
+        assert_eq!(pre_inv[0]["command"].as_str().unwrap(), "memex prompt-hook");
     }
 
     #[test]
@@ -180,6 +267,20 @@ mod tests {
             parsed["mcpServers"]["memex"]["command"].as_str().unwrap(),
             "memex"
         );
+
+        let hooks_file = temp_dir
+            .path()
+            .join(".gemini")
+            .join("config")
+            .join("hooks.json");
+        assert!(hooks_file.exists());
+        let parsed_hooks = read_json_value(&hooks_file).unwrap().unwrap();
+        assert_eq!(
+            parsed_hooks["memex"]["PreInvocation"][0]["command"]
+                .as_str()
+                .unwrap(),
+            "memex prompt-hook"
+        );
     }
 
     #[test]
@@ -211,5 +312,44 @@ mod tests {
             parsed["mcpServers"]["memex"]["command"].as_str().unwrap(),
             "memex"
         );
+
+        let hooks_file = workspace.join(".agents").join("hooks.json");
+        assert!(hooks_file.exists());
+        let parsed_hooks = read_json_value(&hooks_file).unwrap().unwrap();
+        assert_eq!(
+            parsed_hooks["memex"]["PreInvocation"][0]["command"]
+                .as_str()
+                .unwrap(),
+            "memex prompt-hook"
+        );
+    }
+
+    #[test]
+    fn test_antigravity_hooks_idempotency_and_preservation() {
+        let temp_dir = TempDir::new().unwrap();
+        let hooks_file = temp_dir.path().join("hooks.json");
+
+        // Pre-create hooks.json with other existing hook
+        atomic_write_json(
+            &hooks_file,
+            &serde_json::json!({
+                "other_tool": {
+                    "PostToolUse": [
+                        { "type": "command", "command": "other-check" }
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+
+        // Inject twice
+        inject_antigravity_hooks(&hooks_file).unwrap();
+        inject_antigravity_hooks(&hooks_file).unwrap();
+
+        let parsed = read_json_value(&hooks_file).unwrap().unwrap();
+        assert!(parsed["other_tool"]["PostToolUse"].is_array());
+        let pre_inv = parsed["memex"]["PreInvocation"].as_array().unwrap();
+        assert_eq!(pre_inv.len(), 1);
+        assert_eq!(pre_inv[0]["command"].as_str().unwrap(), "memex prompt-hook");
     }
 }

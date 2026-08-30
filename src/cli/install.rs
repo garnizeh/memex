@@ -208,6 +208,15 @@ pub fn install_with_options<R: BufRead, W: Write>(
                     settings_path.display()
                 )?;
             }
+        } else if *target_id == "antigravity" {
+            let antigravity = crate::installer::targets::AntigravityTarget;
+            if let Ok(hooks_path) = antigravity.resolve_hooks_path(options) {
+                writeln!(
+                    writer,
+                    "  Configured PreInvocation hook in {} (command: memex prompt-hook)",
+                    hooks_path.display()
+                )?;
+            }
         }
     }
 
