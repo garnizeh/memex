@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/garnizeh/memex/compare/memex-v0.8.0...memex-v0.8.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **installer:** avoid text file busy by using atomic move ([#80](https://github.com/garnizeh/memex/issues/80)) ([c071f6a](https://github.com/garnizeh/memex/commit/c071f6a2a888614685c88c649be7fea7aa0da6de))
+
 ## [0.8.0](https://github.com/garnizeh/memex/compare/memex-v0.7.0...memex-v0.8.0) (2026-08-30)
 
 
