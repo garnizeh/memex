@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/garnizeh/memex/compare/memex-v0.8.1...memex-v0.9.0) (2026-08-31)
+
+
+### Features
+
+* **rules:** native AI agent directive templates (AGENTS.md, CLAUDE.md, .cursorrules) ([#83](https://github.com/garnizeh/memex/issues/83)) ([8dbd0e1](https://github.com/garnizeh/memex/commit/8dbd0e127393ecc6beff60efeeff87db9091190e))
+
 ## [0.8.1](https://github.com/garnizeh/memex/compare/memex-v0.8.0...memex-v0.8.1) (2026-08-30)
 
 
