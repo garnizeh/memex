@@ -36,3 +36,9 @@
   - Create small, focused feature or chore branches (`feat/*`, `fix/*`, `docs/*`, `refactor/*`, `harness/*`).
   - Keep commits clean, granular, and properly formatted.
   - Push branch and create PR via `gh pr create` with descriptive English title and body.
+
+<!-- MEMEX_START -->
+## Documentation Search (Memex)
+
+In repositories indexed by Memex (a `.memex/` directory exists), reach for the Memex MCP tool `search_documentation` BEFORE using `view_file` or `grep` on markdown documentation to minimize token usage and locate relevant sections instantly.
+<!-- MEMEX_END -->

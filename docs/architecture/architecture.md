@@ -666,17 +666,25 @@ stateDiagram-v2
     ```
     The installer must **merge** this into the existing config, not overwrite the file. Use read-modify-write with an atomic write (write to `.tmp.PID`, then `rename`).
 
-3.  **Permissions (Claude Code specific):** Write to `~/.claude/settings.json`:
-    ```json
-    {
-      "permissions": {
-        "allow": ["mcp__memex__*"]
-      }
-    }
-    ```
-    This wildcard allows all tools exposed by the `memex` MCP server without per-call prompts.
+4.  **Permissions & Hooks (Claude Code & Antigravity IDE):**
+    *   **Claude Code:** Injects `mcp__memex__*` permissions into `~/.claude/settings.json` and configures `UserPromptSubmit` prompt-hook command (`memex prompt-hook`).
+    *   **Antigravity IDE:** Injects `PreInvocation` hook into `hooks.json` to trigger contextual semantic documentation injection on each planner turn.
 
-4.  **Idempotency:** Running `install` again updates the config to the latest version without duplicating entries. The installer checks if `mcpServers.memex` already exists and replaces it.
+5.  **Agent Directive Templates (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.windsurfrules`):**
+    Static directive templates instruct agents to prefer Memex MCP tools (`search_documentation`, `traverse_graph`) before generic fallback tools (`view_file`, `grep`).
+
+    ```markdown
+    <!-- MEMEX_START -->
+    ## Documentation Search (Memex)
+
+    In repositories indexed by Memex (a `.memex/` directory exists), reach for the Memex MCP tool `search_documentation` BEFORE using `view_file` or `grep` on markdown documentation to minimize token usage and locate relevant sections instantly.
+    <!-- MEMEX_END -->
+    ```
+    *   **Hook vs Static Directives Alignment:** Dynamic hooks (e.g. Antigravity IDE `PreInvocation` and Claude Code `UserPromptSubmit`) actively inject relevant doc chunks into prompt context turns. Static rule templates provide universal guidance for all agents (Cursor, Windsurf, Zed, generic agents) to reach for MCP tools first, ensuring optimal token efficiency across both hook-enabled and static agent workflows.
+    *   **Idempotency & Non-Destructive Preservation:** Custom user guidelines outside the `<!-- MEMEX_START -->` / `<!-- MEMEX_END -->` markers are strictly preserved.
+
+6.  **Idempotency:** Running `install` again updates the config to the latest version without duplicating entries. The installer checks if `mcpServers.memex` already exists and replaces it.
+
 
 ### 8.2. `memex init [path]`
 

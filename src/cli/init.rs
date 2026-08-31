@@ -98,8 +98,12 @@ pub fn init_project_with_embedder<E: ChunkEmbedder>(
     let mut db = Database::open(&db_path)?;
     initialize_schema(db.conn())?;
 
-    // 6. Full File Discovery & Ingestion with multi-stage progress reporting
+    // 6. Update existing workspace agent directives (preserving custom user content)
+    let _ = crate::installer::update_existing_workspace_agent_rules(&resolved_path);
+
+    // 7. Full File Discovery & Ingestion with multi-stage progress reporting
     let config = MemexConfig::load_or_default(&resolved_path);
+
     let mut reporter = crate::cli::progress::IndexProgressReporter::new(false);
 
     reporter.start_scan();
@@ -175,6 +179,13 @@ pub fn run_init(path: &Path, force: bool, verbose: bool) -> Result<IndexStats> {
             "  Database location: {}",
             resolved_path.join(".memex").join("memex.db").display()
         );
+    }
+
+    // Generate standard agent directive files (AGENTS.md, CLAUDE.md)
+    if let Ok(rule_files) = crate::installer::update_workspace_agent_rules(&resolved_path) {
+        for rf in rule_files {
+            println!("✓ Injected Memex agent directives into {}", rf.display());
+        }
     }
 
     Ok(stats)
@@ -420,5 +431,33 @@ mod tests {
         let docs = db.reader().get_all_documents().unwrap();
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].title.as_deref(), Some("Getting Started"));
+    }
+
+    #[test]
+    fn test_init_creates_agent_directive_rules() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("rules_init_project");
+        fs::create_dir(&project_dir).unwrap();
+
+        create_file(
+            &project_dir,
+            "README.md",
+            "# Project With Rules\n\nSome readme content.",
+        );
+
+        let existing_agents = "# Custom Agent Rules\n\n- Do things safely.\n";
+        create_file(&project_dir, "AGENTS.md", existing_agents);
+
+        init_project_with_embedder(&project_dir, false, false, &mock_embedder())
+            .expect("init should succeed");
+
+        let agents_md = project_dir.join("AGENTS.md");
+        assert!(agents_md.exists());
+
+        let agents_content = fs::read_to_string(&agents_md).unwrap();
+        assert!(agents_content.starts_with("# Custom Agent Rules"));
+        assert!(agents_content.contains(crate::installer::MEMEX_START_MARKER));
+        assert!(agents_content.contains(crate::installer::MEMEX_END_MARKER));
+        assert!(agents_content.contains("search_documentation"));
     }
 }
